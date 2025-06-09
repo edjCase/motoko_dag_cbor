@@ -7,6 +7,8 @@ import Text "mo:new-base/Text";
 import Nat "mo:new-base/Nat";
 import Blob "mo:new-base/Blob";
 import Order "mo:new-base/Order";
+import Iter "mo:new-base/Iter";
+import Float "mo:new-base/Float";
 import Buffer "mo:base/Buffer";
 import FloatX "mo:xtended-numbers/FloatX";
 
@@ -25,43 +27,27 @@ module {
         #float : Float;
     };
 
-    // public type DagValue = {
-    //     #majorType0 : Nat64; // 0 -> 2^64 - 1
-    //     #majorType1 : Int; // -2^64 -> -1 ((-1 * Value) - 1)
-    //     #majorType2 : [Nat8];
-    //     #majorType3 : Text;
-    //     #majorType4 : [DagValue];
-    //     #majorType5 : [(Text, DagValue)];
-    //     #majorType6 : {
-    //         tag : Nat64; // Only 42 Allowed
-    //         value : {
-    //             #majorType2 : [Nat8]; // CID
-    //         };
-    //     };
-    //     #majorType7 : {
-    //         #bool : Bool;
-    //         #_null;
-    //         #float : Float; // Only 64 bit
-    //     };
-    // };
-
-    // public type DagDecodingError = {
-    //     #unexpectedEndOfBytes;
-    //     #invalid : Text;
-    //     #unsortedMapKeys;
-    //     #duplicateMapKey : Text;
-    //     #invalidMapKey : Text;
-    //     #invalidFloatEncoding;
-    // };
-
-    public type DagMappingError = {
+    public type DagToCborError = {
         #invalidValue : Text;
         #invalidMapKey : Text;
         #unsortedMapKeys;
     };
 
-    public type DagEncodingError = DagMappingError or {
+    public type CborToDagError = {
+        #invalidTag : Nat64;
+        #invalidMapKey : Text;
+        #invalidCIDFormat : Text;
+        #unsupportedPrimitive : Text;
+        #floatConversionError : Text;
+        #integerOutOfRange : Text;
+    };
+
+    public type DagEncodingError = DagToCborError or {
         #cborEncodingError : Cbor.EncodingError;
+    };
+
+    public type DagDecodingError = CborToDagError or {
+        #cborDecodingError : Cbor.DecodingError;
     };
 
     public func encode(value : Value) : Result.Result<[Nat8], DagEncodingError> {
@@ -82,7 +68,21 @@ module {
         };
     };
 
-    public func toCbor(value : Value) : Result.Result<Cbor.Value, DagMappingError> {
+    public func decode(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError> {
+        // First decode using the CBOR library
+        switch (Cbor.decode(bytes)) {
+            case (#ok(cborValue)) {
+                // Then convert CBOR Value to DAG-CBOR Value
+                switch (fromCbor(cborValue)) {
+                    case (#ok(dagValue)) #ok(dagValue);
+                    case (#err(e)) #err(e);
+                };
+            };
+            case (#err(cborError)) #err(#cborDecodingError(cborError));
+        };
+    };
+
+    public func toCbor(value : Value) : Result.Result<Cbor.Value, DagToCborError> {
         switch (value) {
             case (#int(i)) mapInt(i);
             case (#bytes(b)) mapBytes(b);
@@ -96,7 +96,78 @@ module {
         };
     };
 
-    func mapInt(value : Int) : Result.Result<Cbor.Value, DagMappingError> {
+    public func fromCbor(cborValue : Cbor.Value) : Result.Result<Value, CborToDagError> {
+        switch (cborValue) {
+            case (#majorType0(n)) #ok(#int(Int.fromNat(Nat64.toNat(n))));
+            case (#majorType1(i)) #ok(#int(i));
+            case (#majorType2(bytes)) #ok(#bytes(bytes));
+            case (#majorType3(text)) #ok(#text(text));
+            case (#majorType4(array)) {
+                // Array - recursively convert elements
+                let dagArray = Buffer.Buffer<Value>(array.size());
+                for (item in array.vals()) {
+                    switch (fromCbor(item)) {
+                        case (#ok(dagValue)) dagArray.add(dagValue);
+                        case (#err(e)) return #err(e);
+                    };
+                };
+                #ok(#array(Buffer.toArray(dagArray)));
+            };
+            case (#majorType5(map)) {
+                // Map - validate string keys and convert values
+                let dagMap = Buffer.Buffer<(Text, Value)>(map.size());
+                for ((key, value) in map.vals()) {
+                    // DAG-CBOR requires map keys to be strings only
+                    let textKey = switch (key) {
+                        case (#majorType3(text)) text;
+                        case (_) return #err(#invalidMapKey("Map keys must be strings in DAG-CBOR"));
+                    };
+
+                    // Recursively convert the value
+                    switch (fromCbor(value)) {
+                        case (#ok(dagValue)) dagMap.add((textKey, dagValue));
+                        case (#err(e)) return #err(e);
+                    };
+                };
+                #ok(#map(Buffer.toArray(dagMap)));
+            };
+            case (#majorType6({ tag; value })) {
+                // Tagged value - DAG-CBOR only allows tag 42 for CIDs
+                if (tag != 42) {
+                    return #err(#invalidTag(tag));
+                };
+
+                // Tag 42 must contain a byte string with multibase identity prefix (0x00)
+                switch (value) {
+                    case (#majorType2(cid)) {
+                        // TODO CID parse
+                        #ok(#cid(cid));
+                    };
+                    case (_) return #err(#invalidCIDFormat("CID tag 42 must contain a byte string"));
+                };
+            };
+            case (#majorType7(primitive)) {
+                // Primitive values
+                switch (primitive) {
+                    case (#bool(b)) #ok(#bool(b));
+                    case (#_null) #ok(#null_);
+                    case (#float(floatX)) {
+                        // Convert FloatX back to Float
+                        // DAG-CBOR requires 64-bit floats, so this should be safe
+                        let f = FloatX.toFloat(floatX);
+                        // Check for IEEE 754 special values that are not allowed in DAG-CBOR
+                        if (Float.isNaN(f) or f == (1.0 / 0.0) or f == (-1.0 / 0.0)) {
+                            return #err(#floatConversionError("IEEE 754 special values (NaN, Infinity, -Infinity) are not allowed in DAG-CBOR"));
+                        };
+                        #ok(#float(f));
+                    };
+                    case (_) return #err(#unsupportedPrimitive("Unsupported primitive type in DAG-CBOR"));
+                };
+            };
+        };
+    };
+
+    func mapInt(value : Int) : Result.Result<Cbor.Value, DagToCborError> {
         if (value >= 0) {
             // Positive integers use majorType0
             let natValue = Int.abs(value);
@@ -112,15 +183,15 @@ module {
         };
     };
 
-    func mapBytes(value : [Nat8]) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapBytes(value : [Nat8]) : Result.Result<Cbor.Value, DagToCborError> {
         #ok(#majorType2(value));
     };
 
-    func mapText(value : Text) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapText(value : Text) : Result.Result<Cbor.Value, DagToCborError> {
         #ok(#majorType3(value));
     };
 
-    func mapArray(value : [Value]) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapArray(value : [Value]) : Result.Result<Cbor.Value, DagToCborError> {
         let cborArray = Buffer.Buffer<Cbor.Value>(value.size());
 
         for (item in value.vals()) {
@@ -135,7 +206,7 @@ module {
         #ok(#majorType4(Buffer.toArray(cborArray)));
     };
 
-    func mapMap(value : [(Text, Value)]) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapMap(value : [(Text, Value)]) : Result.Result<Cbor.Value, DagToCborError> {
         // Validate and sort map keys according to DAG-CBOR rules
         let sortedEntries = sortMapEntries(value);
 
@@ -161,7 +232,7 @@ module {
         #ok(#majorType5(Buffer.toArray(cborEntries)));
     };
 
-    func mapCID(value : CID) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapCID(value : CID) : Result.Result<Cbor.Value, DagToCborError> {
         // CID must be prefixed with multibase identity prefix (0x00)
         let cidWithPrefix : [Nat8] = Array.concat<Nat8>([0x00], value);
 
@@ -173,15 +244,15 @@ module {
         );
     };
 
-    func mapBool(value : Bool) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapBool(value : Bool) : Result.Result<Cbor.Value, DagToCborError> {
         #ok(#majorType7(#bool(value)));
     };
 
-    func mapNull() : Result.Result<Cbor.Value, DagMappingError> {
+    func mapNull() : Result.Result<Cbor.Value, DagToCborError> {
         #ok(#majorType7(#_null));
     };
 
-    func mapFloat(value : Float) : Result.Result<Cbor.Value, DagMappingError> {
+    func mapFloat(value : Float) : Result.Result<Cbor.Value, DagToCborError> {
         // DAG-CBOR requires 64-bit floats only
         #ok(#majorType7(#float(FloatX.fromFloat(value, #f64))));
     };
@@ -217,7 +288,7 @@ module {
     };
 
     // Helper function to check for duplicate keys
-    func checkDuplicateKeys(entries : [(Text, Value)]) : Result.Result<(), DagMappingError> {
+    func checkDuplicateKeys(entries : [(Text, Value)]) : Result.Result<(), DagToCborError> {
         if (entries.size() <= 1) return #ok();
 
         for (i in Nat.range(0, entries.size() - 1)) {

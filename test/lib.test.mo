@@ -6,7 +6,7 @@ import Buffer "mo:base/Buffer";
 import { test } "mo:test";
 import FloatX "mo:xtended-numbers/FloatX";
 
-// Test helper to verify that encoded DAG-CBOR can be decoded as CBOR
+// Test helper to verify that encoded DAG-CBOR can be decoded as CBOR AND round-trip back to DAG-CBOR
 func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, description : Text) {
 
   let actualCborValue = switch (DagCbor.toCbor(value)) {
@@ -19,6 +19,20 @@ func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, des
       "Invalid CBOR structure for " # description #
       "\nExpected: " # debug_show (expectedCborValue) #
       "\nActual:   " # debug_show (actualCborValue)
+    );
+  };
+
+  // Test round-trip: CBOR -> DAG-CBOR should give us back the original value
+  let roundTripValue = switch (DagCbor.fromCbor(actualCborValue)) {
+    case (#ok(dagValue)) dagValue;
+    case (#err(e)) Debug.trap("Round-trip fromCbor failed for " # description # ": " # debug_show (e));
+  };
+
+  if (roundTripValue != value) {
+    Debug.trap(
+      "Round-trip failed for " # description #
+      "\nOriginal: " # debug_show (value) #
+      "\nRound-trip: " # debug_show (roundTripValue)
     );
   };
 };
@@ -574,5 +588,351 @@ test(
       ]),
       "special characters sorted by byte value",
     );
+  },
+);
+
+// Helper function for testing expected fromCbor failures
+func testFromCborFailure(cborValue : Cbor.Value, expectedErrorType : Text, description : Text) {
+  let result = DagCbor.fromCbor(cborValue);
+
+  switch (result) {
+    case (#ok(_)) {
+      Debug.trap("Expected fromCbor failure for " # description # " but conversion succeeded");
+    };
+    case (#err(actualError)) {
+      let errorMatches = switch (expectedErrorType, actualError) {
+        case ("invalidTag", #invalidTag(_)) true;
+        case ("invalidMapKey", #invalidMapKey(_)) true;
+        case ("invalidCIDFormat", #invalidCIDFormat(_)) true;
+        case ("unsupportedPrimitive", #unsupportedPrimitive(_)) true;
+        case ("floatConversionError", #floatConversionError(_)) true;
+        case ("integerOutOfRange", #integerOutOfRange(_)) true;
+        case (_, _) false;
+      };
+
+      if (not errorMatches) {
+        Debug.trap(
+          "Expected error type " # expectedErrorType # " for " # description #
+          " but got " # debug_show (actualError)
+        );
+      };
+    };
+  };
+};
+
+// Helper function for testing expected decode failures
+func testDecodeFailure(bytes : [Nat8], expectedErrorType : Text, description : Text) {
+  let result = DagCbor.decode(bytes.vals());
+
+  switch (result) {
+    case (#ok(_)) {
+      Debug.trap("Expected decode failure for " # description # " but decoding succeeded");
+    };
+    case (#err(actualError)) {
+      let errorMatches = switch (expectedErrorType, actualError) {
+        case ("cborDecodingError", #cborDecodingError(_)) true;
+        case ("invalidTag", #invalidTag(_)) true;
+        case ("invalidMapKey", #invalidMapKey(_)) true;
+        case ("invalidCIDFormat", #invalidCIDFormat(_)) true;
+        case ("unsupportedPrimitive", #unsupportedPrimitive(_)) true;
+        case ("floatConversionError", #floatConversionError(_)) true;
+        case (_, _) false;
+      };
+
+      if (not errorMatches) {
+        Debug.trap(
+          "Expected error type " # expectedErrorType # " for " # description #
+          " but got " # debug_show (actualError)
+        );
+      };
+    };
+  };
+};
+
+test(
+  "DAG-CBOR fromCbor Invalid Tag Errors",
+  func() {
+    // Test invalid tag (not 42)
+    testFromCborFailure(
+      #majorType6({
+        tag = 41;
+        value = #majorType2([0x00, 0x01, 0x02]);
+      }),
+      "invalidTag",
+      "tag 41 should be rejected",
+    );
+
+    testFromCborFailure(
+      #majorType6({
+        tag = 43;
+        value = #majorType2([0x00, 0x01, 0x02]);
+      }),
+      "invalidTag",
+      "tag 43 should be rejected",
+    );
+
+    testFromCborFailure(
+      #majorType6({
+        tag = 0;
+        value = #majorType2([0x00, 0x01, 0x02]);
+      }),
+      "invalidTag",
+      "tag 0 should be rejected",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR fromCbor Invalid Map Key Errors",
+  func() {
+    // Test non-string map keys
+    testFromCborFailure(
+      #majorType5([
+        (#majorType0(123), #majorType0(456)) // integer key
+      ]),
+      "invalidMapKey",
+      "integer map key should be rejected",
+    );
+
+    testFromCborFailure(
+      #majorType5([
+        (#majorType3("valid"), #majorType0(1)),
+        (#majorType2([0x01, 0x02]), #majorType0(2)) // bytes key
+      ]),
+      "invalidMapKey",
+      "bytes map key should be rejected",
+    );
+
+    testFromCborFailure(
+      #majorType5([
+        (#majorType7(#bool(true)), #majorType0(1)) // boolean key
+      ]),
+      "invalidMapKey",
+      "boolean map key should be rejected",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR fromCbor Invalid CID Format Errors",
+  func() {
+    // Test CID without multibase prefix
+    testFromCborFailure(
+      #majorType6({
+        tag = 42;
+        value = #majorType2([0x01, 0x02, 0x03]); // missing 0x00 prefix
+      }),
+      "invalidCIDFormat",
+      "CID without multibase prefix should be rejected",
+    );
+
+    // Test empty CID
+    testFromCborFailure(
+      #majorType6({
+        tag = 42;
+        value = #majorType2([]); // empty bytes
+      }),
+      "invalidCIDFormat",
+      "empty CID should be rejected",
+    );
+
+    // Test CID with only multibase prefix
+    testFromCborFailure(
+      #majorType6({
+        tag = 42;
+        value = #majorType2([0x00]); // only prefix, no CID data
+      }),
+      "invalidCIDFormat",
+      "CID with only multibase prefix should be rejected",
+    );
+
+    // Test tag 42 with non-bytes value
+    testFromCborFailure(
+      #majorType6({
+        tag = 42;
+        value = #majorType3("not bytes"); // text instead of bytes
+      }),
+      "invalidCIDFormat",
+      "tag 42 with text value should be rejected",
+    );
+
+    testFromCborFailure(
+      #majorType6({
+        tag = 42;
+        value = #majorType0(123); // integer instead of bytes
+      }),
+      "invalidCIDFormat",
+      "tag 42 with integer value should be rejected",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR fromCbor Unsupported Primitive Errors",
+  func() {
+    // Note: We need to test unsupported primitives, but the CBOR library may not expose all of them
+    // This test may need to be adjusted based on what primitives are available in the CBOR library
+
+    // Test would go here if we had access to unsupported primitives like undefined
+    // For now, we'll test what we can with available primitives
+  },
+);
+
+test(
+  "DAG-CBOR decode Round-trip Tests",
+  func() {
+    // Test round-trip: DAG-CBOR -> bytes -> DAG-CBOR
+    let testValues : [DagCbor.Value] = [
+      #int(42),
+      #int(-17),
+      #bytes([0xDE, 0xAD, 0xBE, 0xEF]),
+      #text("hello world"),
+      #array([#int(1), #text("test"), #bool(true)]),
+      #map([("key1", #int(1)), ("key2", #text("value"))]),
+      #cid([0x01, 0x55, 0x12, 0x20]),
+      #bool(true),
+      #bool(false),
+      #null_,
+      #float(3.14159),
+    ];
+
+    for (originalValue in testValues.vals()) {
+      // Encode to bytes
+      let encodedBytes = switch (DagCbor.encode(originalValue)) {
+        case (#ok(bytes)) bytes;
+        case (#err(e)) Debug.trap("Encoding failed: " # debug_show (e));
+      };
+
+      // Decode back to DAG-CBOR
+      let decodedValue = switch (DagCbor.decode(encodedBytes.vals())) {
+        case (#ok(value)) value;
+        case (#err(e)) Debug.trap("Decoding failed: " # debug_show (e));
+      };
+
+      // Check if round-trip preserved the value
+      if (decodedValue != originalValue) {
+        Debug.trap(
+          "Round-trip failed" #
+          "\nOriginal: " # debug_show (originalValue) #
+          "\nDecoded:  " # debug_show (decodedValue)
+        );
+      };
+    };
+  },
+);
+
+test(
+  "DAG-CBOR decode Invalid Bytes",
+  func() {
+    // Test with invalid CBOR bytes
+    testDecodeFailure(
+      [0xFF, 0xFF, 0xFF], // Invalid CBOR
+      "cborDecodingError",
+      "invalid CBOR bytes should fail",
+    );
+
+    testDecodeFailure(
+      [], // Empty bytes
+      "cborDecodingError",
+      "empty bytes should fail",
+    );
+
+    testDecodeFailure(
+      [0x1F], // Incomplete CBOR
+      "cborDecodingError",
+      "incomplete CBOR should fail",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR decode Complex Structure Round-trip",
+  func() {
+    // Test complex nested structure round-trip
+    let complexValue : DagCbor.Value = #map([
+      ("metadata", #map([("version", #int(1)), ("created", #text("2024-01-01")), ("tags", #array([#text("test"), #text("dag-cbor")]))])),
+      ("data", #array([#int(1), #int(2), #map([("nested", #bool(true)), ("count", #int(42))])])),
+      ("cid", #cid([0xAB, 0xCD, 0xEF, 0x12, 0x34])),
+      ("active", #bool(true)),
+      ("score", #float(98.6)),
+      ("empty", #null_),
+    ]);
+
+    // Encode to bytes
+    let encodedBytes = switch (DagCbor.encode(complexValue)) {
+      case (#ok(bytes)) bytes;
+      case (#err(e)) Debug.trap("Complex encoding failed: " # debug_show (e));
+    };
+
+    // Decode back
+    let decodedValue = switch (DagCbor.decode(encodedBytes.vals())) {
+      case (#ok(value)) value;
+      case (#err(e)) Debug.trap("Complex decoding failed: " # debug_show (e));
+    };
+
+    // Verify round-trip
+    if (decodedValue != complexValue) {
+      Debug.trap(
+        "Complex round-trip failed" #
+        "\nOriginal: " # debug_show (complexValue) #
+        "\nDecoded:  " # debug_show (decodedValue)
+      );
+    };
+  },
+);
+
+test(
+  "DAG-CBOR fromCbor Nested Structure with Errors",
+  func() {
+    // Test that errors in nested structures are properly caught
+    let invalidNestedCbor : Cbor.Value = #majorType5([
+      (#majorType3("valid"), #majorType0(1)),
+      (#majorType3("invalid"), #majorType5([(#majorType0(123), #majorType0(456)) /* invalid integer key in nested map */])),
+    ]);
+
+    testFromCborFailure(
+      invalidNestedCbor,
+      "invalidMapKey",
+      "nested map with invalid key should be rejected",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR decode Edge Cases",
+  func() {
+    // Test decoding of edge case values
+
+    // Very large positive integer (within bounds)
+    let largeInt : DagCbor.Value = #int(9223372036854775807); // Max Int64
+    let largeIntBytes = switch (DagCbor.encode(largeInt)) {
+      case (#ok(bytes)) bytes;
+      case (#err(e)) Debug.trap("Large int encoding failed: " # debug_show (e));
+    };
+
+    let decodedLargeInt = switch (DagCbor.decode(largeIntBytes.vals())) {
+      case (#ok(value)) value;
+      case (#err(e)) Debug.trap("Large int decoding failed: " # debug_show (e));
+    };
+
+    if (decodedLargeInt != largeInt) {
+      Debug.trap("Large int round-trip failed");
+    };
+
+    // Very large negative integer (within bounds)
+    let largeNegInt : DagCbor.Value = #int(-9223372036854775808); // Min Int64
+    let largeNegIntBytes = switch (DagCbor.encode(largeNegInt)) {
+      case (#ok(bytes)) bytes;
+      case (#err(e)) Debug.trap("Large negative int encoding failed: " # debug_show (e));
+    };
+
+    let decodedLargeNegInt = switch (DagCbor.decode(largeNegIntBytes.vals())) {
+      case (#ok(value)) value;
+      case (#err(e)) Debug.trap("Large negative int decoding failed: " # debug_show (e));
+    };
+
+    if (decodedLargeNegInt != largeNegInt) {
+      Debug.trap("Large negative int round-trip failed");
+    };
   },
 );
