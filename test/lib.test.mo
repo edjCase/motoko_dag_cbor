@@ -1,10 +1,578 @@
-import { test } "mo:test";
+import DagCbor "../src";
+import Cbor "mo:cbor";
 import Debug "mo:base/Debug";
+import Nat8 "mo:base/Nat8";
+import Buffer "mo:base/Buffer";
+import { test } "mo:test";
+import FloatX "mo:xtended-numbers/FloatX";
+
+// Test helper to verify that encoded DAG-CBOR can be decoded as CBOR
+func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, description : Text) {
+
+  let actualCborValue = switch (DagCbor.toCbor(value)) {
+    case (#ok(cborValue)) cborValue;
+    case (#err(e)) Debug.trap("Encoding failed for " # description # ": " # debug_show (e));
+  };
+
+  if (actualCborValue != expectedCborValue) {
+    Debug.trap(
+      "Invalid CBOR structure for " # description #
+      "\nExpected: " # debug_show (expectedCborValue) #
+      "\nActual:   " # debug_show (actualCborValue)
+    );
+  };
+};
 
 test(
-  "Test 1",
+  "DAG-CBOR Integer Encoding",
   func() {
-    Debug.print("Error message");
-    assert (false);
+    // Positive integers -> majorType0
+    testDagToCborMap(
+      #int(0),
+      #majorType0(0),
+      "zero",
+    );
+
+    testDagToCborMap(
+      #int(1),
+      #majorType0(1),
+      "positive small",
+    );
+
+    testDagToCborMap(
+      #int(23),
+      #majorType0(23),
+      "positive boundary",
+    );
+
+    testDagToCborMap(
+      #int(100),
+      #majorType0(100),
+      "positive medium",
+    );
+
+    // Negative integers -> majorType1
+    testDagToCborMap(
+      #int(-1),
+      #majorType1(-1),
+      "negative one",
+    );
+
+    testDagToCborMap(
+      #int(-10),
+      #majorType1(-10),
+      "negative small",
+    );
+
+    testDagToCborMap(
+      #int(-100),
+      #majorType1(-100),
+      "negative medium",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Bytes Encoding",
+  func() {
+    // Empty bytes
+    testDagToCborMap(
+      #bytes([]),
+      #majorType2([]),
+      "empty bytes",
+    );
+
+    // Small byte array
+    testDagToCborMap(
+      #bytes([0x01, 0x02, 0x03, 0x04]),
+      #majorType2([0x01, 0x02, 0x03, 0x04]),
+      "small bytes",
+    );
+
+    // Single byte
+    testDagToCborMap(
+      #bytes([0xFF]),
+      #majorType2([0xFF]),
+      "single byte",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Text Encoding",
+  func() {
+    // Empty string
+    testDagToCborMap(
+      #text(""),
+      #majorType3(""),
+      "empty text",
+    );
+
+    // Simple string
+    testDagToCborMap(
+      #text("hello"),
+      #majorType3("hello"),
+      "simple text",
+    );
+
+    // UTF-8 string
+    testDagToCborMap(
+      #text("IETF"),
+      #majorType3("IETF"),
+      "ASCII text",
+    );
+
+    // Unicode string
+    testDagToCborMap(
+      #text("\u{00fc}"),
+      #majorType3("\u{00fc}"),
+      "unicode text",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Array Encoding",
+  func() {
+    // Empty array
+    testDagToCborMap(
+      #array([]),
+      #majorType4([]),
+      "empty array",
+    );
+
+    // Simple array
+    testDagToCborMap(
+      #array([#int(1), #int(2), #int(3)]),
+      #majorType4([#majorType0(1), #majorType0(2), #majorType0(3)]),
+      "simple integer array",
+    );
+
+    // Mixed type array
+    testDagToCborMap(
+      #array([#int(1), #text("hello"), #bool(true)]),
+      #majorType4([#majorType0(1), #majorType3("hello"), #majorType7(#bool(true))]),
+      "mixed type array",
+    );
+
+    // Nested array
+    testDagToCborMap(
+      #array([#int(1), #array([#int(2), #int(3)])]),
+      #majorType4([#majorType0(1), #majorType4([#majorType0(2), #majorType0(3)])]),
+      "nested array",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Map Encoding",
+  func() {
+    // Empty map
+    testDagToCborMap(
+      #map([]),
+      #majorType5([]),
+      "empty map",
+    );
+
+    // Simple map
+    testDagToCborMap(
+      #map([("a", #int(1)), ("b", #int(2))]),
+      #majorType5([(#majorType3("a"), #majorType0(1)), (#majorType3("b"), #majorType0(2))]),
+      "simple map",
+    );
+
+    // Map with mixed values
+    testDagToCborMap(
+      #map([("name", #text("Alice")), ("age", #int(30)), ("active", #bool(true))]),
+      #majorType5([
+        (#majorType3("age"), #majorType0(30)),
+        (#majorType3("name"), #majorType3("Alice")),
+        (#majorType3("active"), #majorType7(#bool(true))),
+      ]),
+      "mixed value map (should be sorted)",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Map Key Sorting",
+  func() {
+    // Test length-first sorting
+    testDagToCborMap(
+      #map([("bb", #int(2)), ("a", #int(1)), ("ccc", #int(3))]),
+      #majorType5([
+        (#majorType3("a"), #majorType0(1)), // length 1
+        (#majorType3("bb"), #majorType0(2)), // length 2
+        (#majorType3("ccc"), #majorType0(3)) // length 3
+      ]),
+      "length-first sorting",
+    );
+
+    // Test lexicographic sorting for same length
+    testDagToCborMap(
+      #map([("ac", #int(1)), ("ab", #int(2)), ("aa", #int(3))]),
+      #majorType5([
+        (#majorType3("aa"), #majorType0(3)), // lexicographically first
+        (#majorType3("ab"), #majorType0(2)), // lexicographically second
+        (#majorType3("ac"), #majorType0(1)) // lexicographically third
+      ]),
+      "lexicographic sorting same length",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR CID Encoding",
+  func() {
+    // Test CID encoding with tag 42
+    let cidBytes : [Nat8] = [0x01, 0x02, 0x03, 0x04];
+    let expectedCidWithPrefix : [Nat8] = [0x00, 0x01, 0x02, 0x03, 0x04]; // multibase prefix added
+
+    testDagToCborMap(
+      #cid(cidBytes),
+      #majorType6({
+        tag = 42;
+        value = #majorType2(expectedCidWithPrefix);
+      }),
+      "CID with tag 42",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Boolean Encoding",
+  func() {
+    // Test true
+    testDagToCborMap(
+      #bool(true),
+      #majorType7(#bool(true)),
+      "boolean true",
+    );
+
+    // Test false
+    testDagToCborMap(
+      #bool(false),
+      #majorType7(#bool(false)),
+      "boolean false",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Null Encoding",
+  func() {
+    testDagToCborMap(
+      #null_,
+      #majorType7(#_null),
+      "null value",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Float Encoding",
+  func() {
+    // Test simple float
+    testDagToCborMap(
+      #float(1.5),
+      #majorType7(#float(FloatX.fromFloat(1.5, #f64))),
+      "simple float",
+    );
+
+    // Test zero float
+    testDagToCborMap(
+      #float(0.0),
+      #majorType7(#float(FloatX.fromFloat(0.0, #f64))),
+      "zero float",
+    );
+
+    // Test negative float
+    testDagToCborMap(
+      #float(-3.14),
+      #majorType7(#float(FloatX.fromFloat(-3.14, #f64))),
+      "negative float",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Complex Structure",
+  func() {
+    // Test a complex nested structure
+    let complexValue : DagCbor.Value = #map([
+      ("metadata", #map([("version", #int(1)), ("created", #text("2024-01-01"))])),
+      ("data", #array([#int(1), #int(2), #map([("nested", #bool(true))])])),
+      ("cid", #cid([0xAB, 0xCD, 0xEF])),
+    ]);
+
+    // This should encode properly and be decodable as CBOR
+    let buffer = Buffer.Buffer<Nat8>(100);
+    let result = DagCbor.encodeToBuffer(buffer, complexValue);
+
+    switch (result) {
+      case (#ok()) {
+        let bytes = Buffer.toArray(buffer);
+        // Verify it can be decoded as valid CBOR
+        switch (Cbor.decode(bytes.vals())) {
+          case (#ok(_)) {
+            // Success - the complex structure encoded correctly
+          };
+          case (#err(e)) {
+            Debug.trap("Complex structure failed CBOR decode: " # debug_show (e));
+          };
+        };
+      };
+      case (#err(e)) {
+        Debug.trap("Complex structure encoding failed: " # debug_show (e));
+      };
+    };
+  },
+);
+
+// Helper function for testing expected encoding failures
+func testDagEncodingFailure(value : DagCbor.Value, expectedError : DagCbor.DagEncodingError, description : Text) {
+  let buffer = Buffer.Buffer<Nat8>(10);
+  let result = DagCbor.encodeToBuffer(buffer, value);
+
+  switch (result) {
+    case (#ok()) {
+      Debug.trap("Expected encoding failure for " # description # " but encoding succeeded");
+    };
+    case (#err(actualError)) {
+      // Check if we got the expected type of error
+      let errorMatches = switch (expectedError, actualError) {
+        case (#invalidMapKey(_), #invalidMapKey(_)) true;
+        case (#invalidValue(_), #invalidValue(_)) true;
+        case (#unsortedMapKeys, #unsortedMapKeys) true;
+        case (#cborEncodingError(_), #cborEncodingError(_)) true;
+        case (_, _) false;
+      };
+
+      if (not errorMatches) {
+        Debug.trap(
+          "Expected error " # debug_show (expectedError) # " for " # description #
+          " but got " # debug_show (actualError)
+        );
+      };
+    };
+  };
+};
+
+test(
+  "DAG-CBOR Duplicate Key Errors",
+  func() {
+    // Test duplicate keys should fail
+    testDagEncodingFailure(
+      #map([("key", #int(1)), ("key", #int(2))]),
+      #invalidMapKey("dummy"),
+      "duplicate keys",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Multiple Duplicate Keys",
+  func() {
+    // Test multiple duplicate keys
+    testDagEncodingFailure(
+      #map([
+        ("a", #int(1)),
+        ("b", #int(2)),
+        ("a", #int(3)),
+        ("c", #int(4)),
+      ]),
+      #invalidMapKey("dummy"),
+      "multiple duplicate keys",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Nested Structure with Duplicate Keys",
+  func() {
+    // Test that duplicate keys fail even in nested structures
+    testDagEncodingFailure(
+      #map([
+        ("outer", #map([("inner", #int(1)), ("inner", #int(2))])),
+        ("valid", #int(3)),
+      ]),
+      #invalidMapKey("dummy"),
+      "duplicate keys in nested map",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Empty String Key Edge Case",
+  func() {
+    // Test empty string as key (should be valid)
+    testDagToCborMap(
+      #map([("", #int(1)), ("a", #int(2))]),
+      #majorType5([
+        (#majorType3(""), #majorType0(1)), // empty string length 0
+        (#majorType3("a"), #majorType0(2)) // "a" length 1
+      ]),
+      "empty string key should be valid and sort first",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Unicode Key Sorting",
+  func() {
+    // Test unicode keys are sorted by byte representation, not logical characters
+    testDagToCborMap(
+      #map([("é", #int(1)), ("e", #int(2)), ("f", #int(3))]),
+      #majorType5([
+        (#majorType3("e"), #majorType0(2)), // "e" = [0x65] (1 byte)
+        (#majorType3("f"), #majorType0(3)), // "f" = [0x66] (1 byte)
+        (#majorType3("é"), #majorType0(1)) // "é" = [0xC3, 0xA9] (2 bytes)
+      ]),
+      "unicode keys sorted by byte length then lexicographic",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Large Map Key Ordering",
+  func() {
+    // Test with many keys to ensure sorting is stable and correct
+    testDagToCborMap(
+      #map([
+        ("zebra", #int(1)),
+        ("a", #int(2)),
+        ("apple", #int(3)),
+        ("bb", #int(4)),
+        ("aardvark", #int(5)),
+        ("z", #int(6)),
+      ]),
+      #majorType5([
+        (#majorType3("a"), #majorType0(2)), // length 1
+        (#majorType3("z"), #majorType0(6)), // length 1
+        (#majorType3("bb"), #majorType0(4)), // length 2
+        (#majorType3("apple"), #majorType0(3)), // length 5
+        (#majorType3("zebra"), #majorType0(1)), // length 5 (lexicographically after "apple")
+        (#majorType3("aardvark"), #majorType0(5)) // length 8
+      ]),
+      "large map with mixed key lengths",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Empty CID",
+  func() {
+    // Test empty CID (edge case)
+    testDagToCborMap(
+      #cid([]),
+      #majorType6({
+        tag = 42;
+        value = #majorType2([0x00]); // just multibase prefix
+      }),
+      "empty CID with multibase prefix",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Very Long Key",
+  func() {
+    // Test with a very long key to ensure no buffer issues
+    let longKey = "this_is_a_very_long_key_name_that_should_still_work_correctly_in_dag_cbor_encoding";
+    testDagToCborMap(
+      #map([(longKey, #int(42)), ("short", #int(1))]),
+      #majorType5([
+        (#majorType3("short"), #majorType0(1)), // length 5
+        (#majorType3(longKey), #majorType0(42)) // much longer
+      ]),
+      "very long key should sort after shorter keys",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Mixed Array with All Types",
+  func() {
+    // Test array containing all possible DAG-CBOR types
+
+    testDagToCborMap(
+      #array([
+        #int(42),
+        #int(-17),
+        #bytes([0xDE, 0xAD, 0xBE, 0xEF]),
+        #text("hello world"),
+        #array([#int(1), #int(2)]),
+        #map([("nested", #bool(true))]),
+        #cid([0x01, 0x55, 0x12, 0x20]),
+        #bool(false),
+        #null_,
+        #float(3.14159),
+      ]),
+      #majorType4([
+        #majorType0(42),
+        #majorType1(-17),
+        #majorType2([0xDE, 0xAD, 0xBE, 0xEF]),
+        #majorType3("hello world"),
+        #majorType4([#majorType0(1), #majorType0(2)]),
+        #majorType5([(#majorType3("nested"), #majorType7(#bool(true)))]),
+        #majorType6({
+          tag = 42;
+          value = #majorType2([0x00, 0x01, 0x55, 0x12, 0x20]);
+        }),
+        #majorType7(#bool(false)),
+        #majorType7(#_null),
+        #majorType7(#float(FloatX.fromFloat(3.14159, #f64))),
+      ]),
+      "mixed array with all DAG-CBOR types",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Case Sensitive Key Sorting",
+  func() {
+    // Test that uppercase/lowercase affects byte sorting
+    testDagToCborMap(
+      #map([("Z", #int(1)), ("a", #int(2)), ("A", #int(3))]),
+      #majorType5([
+        (#majorType3("A"), #majorType0(3)), // "A" = [0x41]
+        (#majorType3("Z"), #majorType0(1)), // "Z" = [0x5A]
+        (#majorType3("a"), #majorType0(2)) // "a" = [0x61]
+      ]),
+      "case sensitive sorting (uppercase first)",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Numbers vs Strings Sorting",
+  func() {
+    // Test edge case with numeric-looking strings
+    testDagToCborMap(
+      #map([("10", #int(1)), ("2", #int(2)), ("1", #int(3))]),
+      #majorType5([
+        (#majorType3("1"), #majorType0(3)), // "1" length 1
+        (#majorType3("2"), #majorType0(2)), // "2" length 1
+        (#majorType3("10"), #majorType0(1)) // "10" length 2
+      ]),
+      "numeric strings sorted by length then lexicographic",
+    );
+  },
+);
+
+test(
+  "DAG-CBOR Special Characters in Keys",
+  func() {
+    // Test special characters and symbols
+    testDagToCborMap(
+      #map([("@", #int(1)), ("!", #int(2)), ("~", #int(3)), ("0", #int(4))]),
+      #majorType5([
+        (#majorType3("!"), #majorType0(2)), // "!" = [0x21]
+        (#majorType3("0"), #majorType0(4)), // "0" = [0x30]
+        (#majorType3("@"), #majorType0(1)), // "@" = [0x40]
+        (#majorType3("~"), #majorType0(3)) // "~" = [0x7E]
+      ]),
+      "special characters sorted by byte value",
+    );
   },
 );
