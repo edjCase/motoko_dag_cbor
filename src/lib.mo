@@ -233,7 +233,6 @@ module {
     };
 
     func mapCID(value : CID) : Result.Result<Cbor.Value, DagToCborError> {
-
         #ok(
             #majorType6({
                 tag = 42; // Only tag 42 is allowed in DAG-CBOR
