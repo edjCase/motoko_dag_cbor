@@ -233,13 +233,11 @@ module {
     };
 
     func mapCID(value : CID) : Result.Result<Cbor.Value, DagToCborError> {
-        // CID must be prefixed with multibase identity prefix (0x00)
-        let cidWithPrefix : [Nat8] = Array.concat<Nat8>([0x00], value);
 
         #ok(
             #majorType6({
                 tag = 42; // Only tag 42 is allowed in DAG-CBOR
-                value = #majorType2(cidWithPrefix);
+                value = #majorType2(value);
             })
         );
     };
