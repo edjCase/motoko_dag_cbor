@@ -11,9 +11,9 @@ import Iter "mo:new-base/Iter";
 import Float "mo:new-base/Float";
 import Buffer "mo:base/Buffer";
 import FloatX "mo:xtended-numbers/FloatX";
+import CID "mo:cid";
 
 module {
-    public type CID = [Nat8]; // TODO Placeholder for CID type
 
     public type Value = {
         #int : Int;
@@ -21,7 +21,7 @@ module {
         #text : Text;
         #array : [Value];
         #map : [(Text, Value)];
-        #cid : CID;
+        #cid : CID.CID;
         #bool : Bool;
         #null_;
         #float : Float;
@@ -140,8 +140,10 @@ module {
                 // Tag 42 must contain a byte string with multibase identity prefix (0x00)
                 switch (value) {
                     case (#majorType2(cid)) {
-                        // TODO CID parse
-                        #ok(#cid(cid));
+                        switch (CID.fromBytes(cid.vals())) {
+                            case (#ok(cidValue)) #ok(#cid(cidValue));
+                            case (#err(e)) return #err(#invalidCIDFormat("Invalid CID format: " # e));
+                        };
                     };
                     case (_) return #err(#invalidCIDFormat("CID tag 42 must contain a byte string"));
                 };
@@ -232,11 +234,11 @@ module {
         #ok(#majorType5(Buffer.toArray(cborEntries)));
     };
 
-    func mapCID(value : CID) : Result.Result<Cbor.Value, DagToCborError> {
+    func mapCID(value : CID.CID) : Result.Result<Cbor.Value, DagToCborError> {
         #ok(
             #majorType6({
                 tag = 42; // Only tag 42 is allowed in DAG-CBOR
-                value = #majorType2(value);
+                value = #majorType2(CID.toBytes(value));
             })
         );
     };

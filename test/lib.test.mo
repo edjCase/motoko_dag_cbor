@@ -264,14 +264,18 @@ test(
   "DAG-CBOR CID Encoding",
   func() {
     // Test CID encoding with tag 42
-    let cidBytes : [Nat8] = [0x01, 0x02, 0x03, 0x04];
-    let expectedCidWithPrefix : [Nat8] = [0x01, 0x02, 0x03, 0x04];
 
     testDagToCborMap(
-      #cid(cidBytes),
+      #cid(
+        #v1({
+          codec = #dag_cbor;
+          hashAlgorithm = #sha2_256;
+          hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
+        })
+      ),
       #majorType6({
         tag = 42;
-        value = #majorType2(expectedCidWithPrefix);
+        value = #majorType2([1, 113, 18, 32, 122, 47, 212, 142, 156, 177, 53, 103, 242, 168, 29, 76, 230, 144, 35, 183, 94, 113, 137, 163, 15, 196, 210, 86, 139, 233, 23, 66, 104, 175, 147, 28]);
       }),
       "CID with tag 42",
       true,
@@ -348,7 +352,16 @@ test(
     let complexValue : DagCbor.Value = #map([
       ("metadata", #map([("version", #int(1)), ("created", #text("2024-01-01"))])),
       ("data", #array([#int(1), #int(2), #map([("nested", #bool(true))])])),
-      ("cid", #cid([0xAB, 0xCD, 0xEF])),
+      (
+        "cid",
+        #cid(
+          #v1({
+            codec = #dag_cbor;
+            hashAlgorithm = #sha2_256;
+            hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
+          })
+        ),
+      ),
     ]);
 
     // This should encode properly and be decodable as CBOR
@@ -509,22 +522,6 @@ test(
 );
 
 test(
-  "DAG-CBOR Empty CID",
-  func() {
-    // Test empty CID (edge case)
-    testDagToCborMap(
-      #cid([]),
-      #majorType6({
-        tag = 42;
-        value = #majorType2([]);
-      }),
-      "empty CID with multibase prefix",
-      true,
-    );
-  },
-);
-
-test(
   "DAG-CBOR Very Long Key",
   func() {
     // Test with a very long key to ensure no buffer issues
@@ -554,7 +551,13 @@ test(
         #text("hello world"),
         #array([#int(1), #int(2)]),
         #map([("nested", #bool(true))]),
-        #cid([0x01, 0x55, 0x12, 0x20]),
+        #cid(
+          #v1({
+            codec = #dag_cbor;
+            hashAlgorithm = #sha2_256;
+            hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
+          })
+        ),
         #bool(false),
         #null_,
         #float(3.14159),
@@ -568,7 +571,7 @@ test(
         #majorType5([(#majorType3("nested"), #majorType7(#bool(true)))]),
         #majorType6({
           tag = 42;
-          value = #majorType2([0x01, 0x55, 0x12, 0x20]);
+          value = #majorType2([1, 113, 18, 32, 122, 47, 212, 142, 156, 177, 53, 103, 242, 168, 29, 76, 230, 144, 35, 183, 94, 113, 137, 163, 15, 196, 210, 86, 139, 233, 23, 66, 104, 175, 147, 28]);
         }),
         #majorType7(#bool(false)),
         #majorType7(#_null),
@@ -822,7 +825,13 @@ test(
       #text("hello world"),
       #array([#int(1), #text("test"), #bool(true)]),
       #map([("key1", #int(1)), ("key2", #text("value"))]),
-      #cid([0x01, 0x55, 0x12, 0x20]),
+      #cid(
+        #v1({
+          codec = #dag_cbor;
+          hashAlgorithm = #sha2_256;
+          hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
+        })
+      ),
       #bool(true),
       #bool(false),
       #null_,
@@ -883,7 +892,16 @@ test(
   func() {
     // Test complex nested structure round-trip
     let complexValue : DagCbor.Value = #map([
-      ("cid", #cid([0xAB, 0xCD, 0xEF, 0x12, 0x34])),
+      (
+        "cid",
+        #cid(
+          #v1({
+            codec = #dag_cbor;
+            hashAlgorithm = #sha2_256;
+            hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
+          })
+        ),
+      ),
       ("data", #array([#int(1), #int(2), #map([("count", #int(42)), ("nested", #bool(true))])])),
       ("empty", #null_),
       ("score", #float(98.6)),

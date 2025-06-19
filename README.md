@@ -92,14 +92,11 @@ public type Value = {
     #text : Text;         // UTF-8 strings
     #array : [Value];     // Ordered arrays
     #map : [(Text, Value)]; // Key-value maps (keys must be strings, sorted)
-    #cid : CID;           // Content Identifiers
+    #cid : CID.CID;           // Content Identifiers
     #bool : Bool;         // Boolean values
     #null_;               // Null value
     #float : Float;       // 64-bit floating point (no NaN/Infinity)
 };
-
-// Content Identifier type (placeholder)
-public type CID = [Nat8];
 
 // DAG-CBOR specific encoding errors
 public type DagToCborError = {
