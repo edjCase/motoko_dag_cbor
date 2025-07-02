@@ -1,19 +1,19 @@
 [package]
 name = "dag-cbor"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Motoko library for encoding and decoding DAG-CBOR data structures."
 repository = "https://github.com/edjcase/motoko_dag_cbor"
 keywords = ["dag", "cbor", "ipld", "encode", "decode"]
 license = "MIT"
 
 [dependencies]
-base = "0.14.11"
+base = "0.14.14"
 new-base = "0.4.0"
 cbor = "2.0.0"
-cid = "0.0.1"
+cid = "0.0.2"
 
 [dev-dependencies]
 test = "2.1.1"
 
 [toolchain]
-moc = "0.14.11"
+moc = "0.14.14"
