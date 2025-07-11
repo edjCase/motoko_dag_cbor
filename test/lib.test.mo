@@ -372,7 +372,7 @@ test(
       case (#ok(_)) {
         let bytes = Buffer.toArray(buffer);
         // Verify it can be decoded as valid CBOR
-        switch (Cbor.decode(bytes.vals())) {
+        switch (Cbor.fromBytes(bytes.vals())) {
           case (#ok(_)) {
             // Success - the complex structure encoded correctly
           };

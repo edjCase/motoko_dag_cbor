@@ -240,10 +240,9 @@ module {
     /// };
     /// ```
     public func toBytesBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<Nat, DagEncodingError> {
-        let initialSize = buffer.size();
         switch (toCbor(value)) {
-            case (#ok(cborValue)) switch (Cbor.encodeToBuffer(buffer, cborValue)) {
-                case (#ok()) #ok(buffer.size() - initialSize);
+            case (#ok(cborValue)) switch (Cbor.toBytesBuffer(buffer, cborValue)) {
+                case (#ok(bytesWritten)) #ok(bytesWritten);
                 case (#err(e)) #err(#cborEncodingError(e));
             };
             case (#err(e)) #err(e);
@@ -278,7 +277,7 @@ module {
     /// ```
     public func fromBytes(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError> {
         // First decode using the CBOR library
-        switch (Cbor.decode(bytes)) {
+        switch (Cbor.fromBytes(bytes)) {
             case (#ok(cborValue)) {
                 // Then convert CBOR Value to DAG-CBOR Value
                 switch (fromCbor(cborValue)) {
