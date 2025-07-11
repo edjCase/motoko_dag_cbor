@@ -48,19 +48,41 @@ let value : DagCbor.Value = #map([
 ]);
 
 // Encode to bytes
-let bytes: [Nat8] = switch (DagCbor.encode(value)) {
+let bytes: [Nat8] = switch (DagCbor.toBytes(value)) {
     case (#err(error)) Debug.trap("Encoding failed: " # debug_show(error));
     case (#ok(bytes)) bytes;
 };
 
 // Decode to value
-let dagValue : DagCbor.Value = switch (DagCbor.decode(value.vals())) {
+let dagValue : DagCbor.Value = switch (DagCbor.fromBytes(bytes.vals())) {
     case (#err(error)) Debug.trap("Decoding failed: " # debug_show(error));
     case (#ok(v)) v;
 };
 ```
 
-### Example 2: To/From Cbor Value
+### Example 2: Buffer-based Encoding with Byte Count
+
+```motoko
+import DagCbor "mo:dag-cbor";
+import Buffer "mo:base/Buffer";
+import Debug "mo:base/Debug";
+
+let value : DagCbor.Value = #text("Hello, World!");
+
+// Create a buffer for streaming encoding
+let buffer = Buffer.Buffer<Nat8>(100);
+
+// Encode to buffer and get bytes written count
+let bytesWritten: Nat = switch (DagCbor.toBytesBuffer(buffer, value)) {
+    case (#err(error)) Debug.trap("Encoding failed: " # debug_show(error));
+    case (#ok(count)) count;
+};
+
+// Buffer now contains the encoded data
+let encodedBytes = Buffer.toArray(buffer);
+```
+
+### Example 3: To/From Cbor Value
 
 ````motoko
 import DagCbor "mo:dag-cbor";
@@ -81,6 +103,13 @@ let dagValue : DagCbor.Value = switch (DagCbor.fromCbor(cborValue)) {
 };
 
 ## API Reference
+
+### Main Functions
+
+- **`toBytes()`** - Converts DAG-CBOR values to binary format
+- **`fromBytes()`** - Converts binary data back to DAG-CBOR values
+- **`toBytesBuffer()`** - Streams encoding to a buffer and returns bytes written count
+- **`toCbor()`** / **`fromCbor()`** - Low-level CBOR conversion functions
 
 ### Types
 
@@ -130,13 +159,13 @@ public type DagDecodingError = CborToDagError or {
 
 ```motoko
 // Encode a DAG-CBOR value to bytes
-public func encode(value : Value) : Result.Result<[Nat8], DagEncodingError>;
+public func toBytes(value : Value) : Result.Result<[Nat8], DagEncodingError>;
 
-// Encode a DAG-CBOR value to an existing buffer (for streaming)
-public func encodeToBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<(), DagEncodingError>;
+// Encode a DAG-CBOR value to an existing buffer (returns bytes written count)
+public func toBytesBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<Nat, DagEncodingError>;
 
 // Decode bytes to a DAG-CBOR value
-public func decode(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError>;
+public func fromBytes(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError>;
 
 // Convert DAG-CBOR value to underlying CBOR value
 public func toCbor(value : Value) : Result.Result<Cbor.Value, DagToCborError>;

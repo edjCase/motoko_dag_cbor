@@ -13,8 +13,72 @@ import Buffer "mo:base/Buffer";
 import FloatX "mo:xtended-numbers/FloatX";
 import CID "mo:cid";
 
+/// DAG-CBOR (Content-Addressed Data Encoding) library for Motoko.
+///
+/// This module provides functionality for encoding and decoding DAG-CBOR data,
+/// which is a subset of CBOR (Concise Binary Object Representation) designed
+/// for content-addressed storage systems like IPFS.
+///
+/// Key features:
+/// * Encode Motoko values to DAG-CBOR binary format
+/// * Decode DAG-CBOR binary data to Motoko values
+/// * Support for all DAG-CBOR data types (integers, bytes, text, arrays, maps, CIDs, booleans, null, floats)
+/// * Strict adherence to DAG-CBOR specification requirements
+/// * Proper handling of CID (Content Identifier) values
+/// * Map key ordering and validation according to DAG-CBOR rules
+///
+/// DAG-CBOR is a restricted subset of CBOR that:
+/// * Requires deterministic encoding
+/// * Enforces lexicographic ordering of map keys
+/// * Only allows specific data types
+/// * Prohibits certain CBOR features (indefinite length, some tags, etc.)
+/// * Supports Content Identifiers (CIDs) as first-class values
+///
+/// Example usage:
+/// ```motoko
+/// import DagCbor "mo:dag-cbor";
+/// import Result "mo:base/Result";
+///
+/// // Encode a value to DAG-CBOR bytes
+/// let value = #map([("name", #text("Alice")), ("age", #int(30))]);
+/// let bytes = DagCbor.toBytes(value);
+///
+/// // Decode DAG-CBOR bytes back to a value
+/// let decoded = DagCbor.fromBytes(bytes.vals());
+/// ```
+///
+/// Security considerations:
+/// * Always validate decoded data before use
+/// * Be aware of potential memory usage with large nested structures
+/// * CID validation is performed during encoding/decoding
 module {
 
+    /// Represents a DAG-CBOR value that can be encoded or decoded.
+    /// This type encompasses all valid DAG-CBOR data types according to the specification.
+    ///
+    /// DAG-CBOR supports the following data types:
+    /// * `#int`: Signed integers (within 64-bit range)
+    /// * `#bytes`: Binary data as byte arrays
+    /// * `#text`: UTF-8 encoded text strings
+    /// * `#array`: Homogeneous arrays of DAG-CBOR values
+    /// * `#map`: Key-value mappings with text keys only
+    /// * `#cid`: Content Identifiers for linking to other content
+    /// * `#bool`: Boolean values (true/false)
+    /// * `#null_`: Null/nil value
+    /// * `#float`: IEEE 754 64-bit floating point numbers
+    ///
+    /// Example usage:
+    /// ```motoko
+    /// let value : Value = #map([
+    ///     ("name", #text("Alice")),
+    ///     ("age", #int(30)),
+    ///     ("active", #bool(true)),
+    ///     ("data", #bytes([1, 2, 3, 4]))
+    /// ]);
+    /// ```
+    ///
+    /// Note: Maps must have text keys only and will be sorted lexicographically
+    /// during encoding to ensure deterministic output.
     public type Value = {
         #int : Int;
         #bytes : [Nat8];
@@ -27,12 +91,45 @@ module {
         #float : Float;
     };
 
+    /// Errors that can occur when converting DAG-CBOR values to CBOR format.
+    /// These errors indicate violations of DAG-CBOR constraints or invalid data.
+    ///
+    /// Error types:
+    /// * `#invalidValue`: The value cannot be represented in DAG-CBOR format
+    /// * `#invalidMapKey`: Map contains non-text keys or invalid key format
+    /// * `#unsortedMapKeys`: Map keys are not in the required lexicographic order
+    ///
+    /// Example scenarios:
+    /// ```motoko
+    /// // This would cause #invalidValue if integer is too large
+    /// let tooLarge = #int(2^65);
+    ///
+    /// // This would cause #invalidMapKey (non-text key)
+    /// let invalidMap = [(123, #text("value"))]; // Should be text key
+    /// ```
     public type DagToCborError = {
         #invalidValue : Text;
         #invalidMapKey : Text;
         #unsortedMapKeys;
     };
 
+    /// Errors that can occur when converting CBOR format to DAG-CBOR values.
+    /// These errors indicate CBOR data that violates DAG-CBOR constraints.
+    ///
+    /// Error types:
+    /// * `#invalidTag`: CBOR tag is not allowed in DAG-CBOR (only tag 42 for CIDs is permitted)
+    /// * `#invalidMapKey`: Map contains non-string keys (DAG-CBOR requires text keys only)
+    /// * `#invalidCIDFormat`: CID data is malformed or invalid
+    /// * `#unsupportedPrimitive`: CBOR primitive type is not supported in DAG-CBOR
+    /// * `#floatConversionError`: Float value cannot be represented (e.g., NaN, Infinity)
+    /// * `#integerOutOfRange`: Integer value exceeds DAG-CBOR limits
+    ///
+    /// Example scenarios:
+    /// ```motoko
+    /// // CBOR with tag 123 would cause #invalidTag
+    /// // CBOR with NaN float would cause #floatConversionError
+    /// // CBOR with integer key would cause #invalidMapKey
+    /// ```
     public type CborToDagError = {
         #invalidTag : Nat64;
         #invalidMapKey : Text;
@@ -42,33 +139,144 @@ module {
         #integerOutOfRange : Text;
     };
 
+    /// Comprehensive error type for DAG-CBOR encoding operations.
+    /// This includes both DAG-CBOR specific errors and underlying CBOR encoding errors.
+    ///
+    /// This type combines:
+    /// * `DagToCborError`: Errors specific to DAG-CBOR validation and conversion
+    /// * `#cborEncodingError`: Errors from the underlying CBOR encoding library
+    ///
+    /// Example usage:
+    /// ```motoko
+    /// switch (DagCbor.toBytes(value)) {
+    ///     case (#ok(bytes)) { /* success */ };
+    ///     case (#err(#invalidValue(msg))) { /* handle DAG-CBOR error */ };
+    ///     case (#err(#cborEncodingError(err))) { /* handle CBOR error */ };
+    /// };
+    /// ```
     public type DagEncodingError = DagToCborError or {
         #cborEncodingError : Cbor.EncodingError;
     };
 
+    /// Comprehensive error type for DAG-CBOR decoding operations.
+    /// This includes both DAG-CBOR specific errors and underlying CBOR decoding errors.
+    ///
+    /// This type combines:
+    /// * `CborToDagError`: Errors specific to DAG-CBOR validation and conversion
+    /// * `#cborDecodingError`: Errors from the underlying CBOR decoding library
+    ///
+    /// Example usage:
+    /// ```motoko
+    /// switch (DagCbor.fromBytes(bytes.vals())) {
+    ///     case (#ok(value)) { /* success */ };
+    ///     case (#err(#invalidTag(tag))) { /* handle DAG-CBOR error */ };
+    ///     case (#err(#cborDecodingError(err))) { /* handle CBOR error */ };
+    /// };
+    /// ```
     public type DagDecodingError = CborToDagError or {
         #cborDecodingError : Cbor.DecodingError;
     };
 
-    public func encode(value : Value) : Result.Result<[Nat8], DagEncodingError> {
+    /// Encodes a DAG-CBOR value to its binary representation.
+    /// This function converts a DAG-CBOR value to its canonical binary format
+    /// according to the DAG-CBOR specification.
+    ///
+    /// The encoding process:
+    /// 1. Validates the value conforms to DAG-CBOR constraints
+    /// 2. Converts to intermediate CBOR representation
+    /// 3. Encodes to binary format using CBOR encoding
+    /// 4. Ensures deterministic output (map keys are sorted)
+    ///
+    /// Parameters:
+    /// * `value`: The DAG-CBOR value to encode
+    ///
+    /// Returns:
+    /// * `#ok([Nat8])`: Successfully encoded binary data
+    /// * `#err(DagEncodingError)`: Encoding failed with error details
+    ///
+    /// Example:
+    /// ```motoko
+    /// let value = #map([("name", #text("Alice")), ("age", #int(30))]);
+    /// let result = toBytes(value);
+    /// switch (result) {
+    ///     case (#ok(bytes)) { /* use bytes */ };
+    ///     case (#err(error)) { /* handle error */ };
+    /// };
+    /// ```
+    public func toBytes(value : Value) : Result.Result<[Nat8], DagEncodingError> {
         let buffer = Buffer.Buffer<Nat8>(10);
-        switch (encodeToBuffer(buffer, value)) {
-            case (#ok) #ok(Buffer.toArray(buffer));
+        switch (toBytesBuffer(buffer, value)) {
+            case (#ok(_)) #ok(Buffer.toArray(buffer));
             case (#err(e)) #err(e);
         };
     };
 
-    public func encodeToBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<(), DagEncodingError> {
+    /// Encodes a DAG-CBOR value directly into a provided buffer.
+    /// This function is useful for streaming or when you want to manage buffer allocation yourself.
+    /// It returns the number of bytes written to the buffer.
+    ///
+    /// The encoding process:
+    /// 1. Validates the value conforms to DAG-CBOR constraints
+    /// 2. Converts to intermediate CBOR representation
+    /// 3. Encodes directly into the provided buffer
+    /// 4. Returns the count of bytes written
+    ///
+    /// Parameters:
+    /// * `buffer`: The buffer to write encoded data into
+    /// * `value`: The DAG-CBOR value to encode
+    ///
+    /// Returns:
+    /// * `#ok(Nat)`: Successfully encoded, returns number of bytes written
+    /// * `#err(DagEncodingError)`: Encoding failed with error details
+    ///
+    /// Example:
+    /// ```motoko
+    /// let buffer = Buffer.Buffer<Nat8>(100);
+    /// let value = #text("Hello, World!");
+    /// let result = toBytesBuffer(buffer, value);
+    /// switch (result) {
+    ///     case (#ok(bytesWritten)) { /* bytesWritten contains the count */ };
+    ///     case (#err(error)) { /* handle error */ };
+    /// };
+    /// ```
+    public func toBytesBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<Nat, DagEncodingError> {
+        let initialSize = buffer.size();
         switch (toCbor(value)) {
             case (#ok(cborValue)) switch (Cbor.encodeToBuffer(buffer, cborValue)) {
-                case (#ok()) #ok();
+                case (#ok()) #ok(buffer.size() - initialSize);
                 case (#err(e)) #err(#cborEncodingError(e));
             };
             case (#err(e)) #err(e);
         };
     };
 
-    public func decode(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError> {
+    /// Decodes DAG-CBOR binary data into a structured value.
+    /// This function takes binary data in DAG-CBOR format and converts it back
+    /// to a structured Value that can be used in Motoko.
+    ///
+    /// The decoding process:
+    /// 1. Decodes the binary data using CBOR decoding
+    /// 2. Validates the CBOR data conforms to DAG-CBOR constraints
+    /// 3. Converts CBOR value to DAG-CBOR Value type
+    /// 4. Validates all constraints (map keys, CID format, etc.)
+    ///
+    /// Parameters:
+    /// * `bytes`: Iterator over the binary data to decode
+    ///
+    /// Returns:
+    /// * `#ok(Value)`: Successfully decoded DAG-CBOR value
+    /// * `#err(DagDecodingError)`: Decoding failed with error details
+    ///
+    /// Example:
+    /// ```motoko
+    /// let bytes = [0x82, 0x01, 0x02]; // CBOR for array [1, 2]
+    /// let result = fromBytes(bytes.vals());
+    /// switch (result) {
+    ///     case (#ok(value)) { /* use decoded value */ };
+    ///     case (#err(error)) { /* handle error */ };
+    /// };
+    /// ```
+    public func fromBytes(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError> {
         // First decode using the CBOR library
         switch (Cbor.decode(bytes)) {
             case (#ok(cborValue)) {
@@ -82,6 +290,30 @@ module {
         };
     };
 
+    /// Converts a DAG-CBOR value to its intermediate CBOR representation.
+    /// This function transforms a DAG-CBOR value into a standard CBOR value
+    /// while enforcing all DAG-CBOR constraints and rules.
+    ///
+    /// The conversion process:
+    /// 1. Validates integer ranges (64-bit signed integers)
+    /// 2. Ensures map keys are text and properly sorted
+    /// 3. Converts CIDs to CBOR tag 42 format
+    /// 4. Validates float values (no NaN, Infinity, etc.)
+    /// 5. Recursively processes nested structures
+    ///
+    /// Parameters:
+    /// * `value`: The DAG-CBOR value to convert
+    ///
+    /// Returns:
+    /// * `#ok(Cbor.Value)`: Successfully converted CBOR value
+    /// * `#err(DagToCborError)`: Conversion failed due to constraint violations
+    ///
+    /// Example:
+    /// ```motoko
+    /// let dagValue = #map([("key", #text("value"))]);
+    /// let cborResult = toCbor(dagValue);
+    /// // Returns CBOR map with properly ordered keys
+    /// ```
     public func toCbor(value : Value) : Result.Result<Cbor.Value, DagToCborError> {
         switch (value) {
             case (#int(i)) mapInt(i);
@@ -96,6 +328,31 @@ module {
         };
     };
 
+    /// Converts a CBOR value to a DAG-CBOR value with validation.
+    /// This function takes a standard CBOR value and converts it to a DAG-CBOR value
+    /// while enforcing all DAG-CBOR constraints and rejecting invalid constructs.
+    ///
+    /// The conversion process:
+    /// 1. Validates that only allowed CBOR major types are used
+    /// 2. Ensures map keys are text strings only
+    /// 3. Validates that only tag 42 (CID) is used
+    /// 4. Converts CID byte strings to proper CID objects
+    /// 5. Validates float values (rejects NaN, Infinity, etc.)
+    /// 6. Recursively processes nested structures
+    ///
+    /// Parameters:
+    /// * `cborValue`: The CBOR value to convert and validate
+    ///
+    /// Returns:
+    /// * `#ok(Value)`: Successfully converted and validated DAG-CBOR value
+    /// * `#err(CborToDagError)`: Conversion failed due to invalid CBOR or constraint violations
+    ///
+    /// Example:
+    /// ```motoko
+    /// let cborValue = #majorType5([(#majorType3("key"), #majorType3("value"))]);
+    /// let dagResult = fromCbor(cborValue);
+    /// // Returns DAG-CBOR map with validated structure
+    /// ```
     public func fromCbor(cborValue : Cbor.Value) : Result.Result<Value, CborToDagError> {
         switch (cborValue) {
             case (#majorType0(n)) #ok(#int(Int.fromNat(Nat64.toNat(n))));

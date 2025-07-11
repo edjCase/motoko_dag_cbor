@@ -366,10 +366,10 @@ test(
 
     // This should encode properly and be decodable as CBOR
     let buffer = Buffer.Buffer<Nat8>(100);
-    let result = DagCbor.encodeToBuffer(buffer, complexValue);
+    let result = DagCbor.toBytesBuffer(buffer, complexValue);
 
     switch (result) {
-      case (#ok()) {
+      case (#ok(_)) {
         let bytes = Buffer.toArray(buffer);
         // Verify it can be decoded as valid CBOR
         switch (Cbor.decode(bytes.vals())) {
@@ -391,10 +391,10 @@ test(
 // Helper function for testing expected encoding failures
 func testDagEncodingFailure(value : DagCbor.Value, expectedError : DagCbor.DagEncodingError, description : Text) {
   let buffer = Buffer.Buffer<Nat8>(10);
-  let result = DagCbor.encodeToBuffer(buffer, value);
+  let result = DagCbor.toBytesBuffer(buffer, value);
 
   switch (result) {
-    case (#ok()) {
+    case (#ok(_)) {
       Debug.trap("Expected encoding failure for " # description # " but encoding succeeded");
     };
     case (#err(actualError)) {
@@ -666,7 +666,7 @@ func testFromCborFailure(cborValue : Cbor.Value, expectedErrorType : Text, descr
 
 // Helper function for testing expected decode failures
 func testDecodeFailure(bytes : [Nat8], expectedErrorType : Text, description : Text) {
-  let result = DagCbor.decode(bytes.vals());
+  let result = DagCbor.fromBytes(bytes.vals());
 
   switch (result) {
     case (#ok(_)) {
@@ -840,13 +840,13 @@ test(
 
     for (originalValue in testValues.vals()) {
       // Encode to bytes
-      let encodedBytes = switch (DagCbor.encode(originalValue)) {
+      let encodedBytes = switch (DagCbor.toBytes(originalValue)) {
         case (#ok(bytes)) bytes;
         case (#err(e)) Debug.trap("Encoding failed: " # debug_show (e));
       };
 
       // Decode back to DAG-CBOR
-      let decodedValue = switch (DagCbor.decode(encodedBytes.vals())) {
+      let decodedValue = switch (DagCbor.fromBytes(encodedBytes.vals())) {
         case (#ok(value)) value;
         case (#err(e)) Debug.trap("Decoding failed: " # debug_show (e));
       };
@@ -910,13 +910,13 @@ test(
     ]);
 
     // Encode to bytes
-    let encodedBytes = switch (DagCbor.encode(complexValue)) {
+    let encodedBytes = switch (DagCbor.toBytes(complexValue)) {
       case (#ok(bytes)) bytes;
       case (#err(e)) Debug.trap("Complex encoding failed: " # debug_show (e));
     };
 
     // Decode back
-    let decodedValue = switch (DagCbor.decode(encodedBytes.vals())) {
+    let decodedValue = switch (DagCbor.fromBytes(encodedBytes.vals())) {
       case (#ok(value)) value;
       case (#err(e)) Debug.trap("Complex decoding failed: " # debug_show (e));
     };
@@ -956,12 +956,12 @@ test(
 
     // Very large positive integer (within bounds)
     let largeInt : DagCbor.Value = #int(9223372036854775807); // Max Int64
-    let largeIntBytes = switch (DagCbor.encode(largeInt)) {
+    let largeIntBytes = switch (DagCbor.toBytes(largeInt)) {
       case (#ok(bytes)) bytes;
       case (#err(e)) Debug.trap("Large int encoding failed: " # debug_show (e));
     };
 
-    let decodedLargeInt = switch (DagCbor.decode(largeIntBytes.vals())) {
+    let decodedLargeInt = switch (DagCbor.fromBytes(largeIntBytes.vals())) {
       case (#ok(value)) value;
       case (#err(e)) Debug.trap("Large int decoding failed: " # debug_show (e));
     };
@@ -972,12 +972,12 @@ test(
 
     // Very large negative integer (within bounds)
     let largeNegInt : DagCbor.Value = #int(-9223372036854775808); // Min Int64
-    let largeNegIntBytes = switch (DagCbor.encode(largeNegInt)) {
+    let largeNegIntBytes = switch (DagCbor.toBytes(largeNegInt)) {
       case (#ok(bytes)) bytes;
       case (#err(e)) Debug.trap("Large negative int encoding failed: " # debug_show (e));
     };
 
-    let decodedLargeNegInt = switch (DagCbor.decode(largeNegIntBytes.vals())) {
+    let decodedLargeNegInt = switch (DagCbor.fromBytes(largeNegIntBytes.vals())) {
       case (#ok(value)) value;
       case (#err(e)) Debug.trap("Large negative int decoding failed: " # debug_show (e));
     };
