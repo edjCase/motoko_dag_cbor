@@ -12,6 +12,8 @@ import Float "mo:new-base/Float";
 import Buffer "mo:base/Buffer";
 import FloatX "mo:xtended-numbers/FloatX";
 import CID "mo:cid";
+import MultiBase "mo:multiformats/MultiBase";
+import Nat8 "mo:new-base/Nat8";
 
 /// DAG-CBOR (Content-Addressed Data Encoding) library for Motoko.
 ///
@@ -395,8 +397,12 @@ module {
 
                 // Tag 42 must contain a byte string with multibase identity prefix (0x00)
                 switch (value) {
-                    case (#majorType2(cid)) {
-                        switch (CID.fromBytes(cid.vals())) {
+                    case (#majorType2(cidEncodedBytes)) {
+                        let (cidBytes, _) = switch (MultiBase.fromEncodedBytes(cidEncodedBytes.vals())) {
+                            case (#ok(bytes)) bytes; // Identity multibase is allowed
+                            case (#err(e)) return #err(#invalidCIDFormat(e));
+                        };
+                        switch (CID.fromBytes(cidBytes.vals())) {
                             case (#ok(cidValue)) #ok(#cid(cidValue));
                             case (#err(e)) return #err(#invalidCIDFormat("Invalid CID format: " # e));
                         };
@@ -491,10 +497,13 @@ module {
     };
 
     func mapCID(value : CID.CID) : Result.Result<Cbor.Value, DagToCborError> {
+        let cidBuffer = Buffer.Buffer<Nat8>(40);
+        cidBuffer.add(0); // Multibase identity prefix (0x00)
+        let _ = CID.toBytesBuffer(cidBuffer, value);
         #ok(
             #majorType6({
                 tag = 42; // Only tag 42 is allowed in DAG-CBOR
-                value = #majorType2(CID.toBytes(value));
+                value = #majorType2(Buffer.toArray(cidBuffer));
             })
         );
     };
