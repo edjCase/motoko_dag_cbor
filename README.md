@@ -1,7 +1,7 @@
 # Motoko DAG-CBOR
 
 [![MOPS](https://img.shields.io/badge/MOPS-dag--cbor-blue)](https://mops.one/dag-cbor)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/motoko_dag_cbor/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/motoko_dagCbor/blob/main/LICENSE)
 
 A Motoko implementation of DAG-CBOR (Deterministic CBOR) for encoding and decoding structured data with content addressing support.
 
@@ -38,7 +38,7 @@ DAG-CBOR is a strict subset of CBOR (Concise Binary Object Representation) desig
 
 ```motoko
 import DagCbor "mo:dag-cbor";
-import Debug "mo:base/Debug";
+import Debug "mo:core/Debug";
 
 // Create a simple value
 let value : DagCbor.Value = #map([
@@ -49,13 +49,13 @@ let value : DagCbor.Value = #map([
 
 // Encode to bytes
 let bytes: [Nat8] = switch (DagCbor.toBytes(value)) {
-    case (#err(error)) Debug.trap("Encoding failed: " # debug_show(error));
+    case (#err(error)) Runtime.trap("Encoding failed: " # debug_show(error));
     case (#ok(bytes)) bytes;
 };
 
 // Decode to value
 let dagValue : DagCbor.Value = switch (DagCbor.fromBytes(bytes.vals())) {
-    case (#err(error)) Debug.trap("Decoding failed: " # debug_show(error));
+    case (#err(error)) Runtime.trap("Decoding failed: " # debug_show(error));
     case (#ok(v)) v;
 };
 ```
@@ -64,8 +64,8 @@ let dagValue : DagCbor.Value = switch (DagCbor.fromBytes(bytes.vals())) {
 
 ```motoko
 import DagCbor "mo:dag-cbor";
-import Buffer "mo:base/Buffer";
-import Debug "mo:base/Debug";
+import Buffer "mo:core/Buffer";
+import Debug "mo:core/Debug";
 
 let value : DagCbor.Value = #text("Hello, World!");
 
@@ -74,7 +74,7 @@ let buffer = Buffer.Buffer<Nat8>(100);
 
 // Encode to buffer and get bytes written count
 let bytesWritten: Nat = switch (DagCbor.toBytesBuffer(buffer, value)) {
-    case (#err(error)) Debug.trap("Encoding failed: " # debug_show(error));
+    case (#err(error)) Runtime.trap("Encoding failed: " # debug_show(error));
     case (#ok(count)) count;
 };
 
@@ -92,13 +92,13 @@ let value : DagCbor.Value = ...;
 
 // Encode to bytes
 let cborValue: Cbor.Value = switch (DagCbor.toCbor(value)) {
-    case (#err(error)) Debug.trap("toCbor failed: " # debug_show(error));
+    case (#err(error)) Runtime.trap("toCbor failed: " # debug_show(error));
     case (#ok(v)) v;
 };
 
 // Decode to value
 let dagValue : DagCbor.Value = switch (DagCbor.fromCbor(cborValue)) {
-    case (#err(error)) Debug.trap("fromCbor failed: " # debug_show(error));
+    case (#err(error)) Runtime.trap("fromCbor failed: " # debug_show(error));
     case (#ok(v)) v;
 };
 

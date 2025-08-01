@@ -1,21 +1,22 @@
 import DagCbor "../src";
 import Cbor "mo:cbor";
-import Debug "mo:base/Debug";
-import Nat8 "mo:base/Nat8";
-import Buffer "mo:base/Buffer";
+import Nat8 "mo:core/Nat8";
+import Buffer "mo:buffer";
 import { test } "mo:test";
 import FloatX "mo:xtended-numbers/FloatX";
+import Runtime "mo:core/Runtime";
+import List "mo:core/List";
 
 // Test helper to verify that encoded DAG-CBOR can be decoded as CBOR AND optionally round-trip back to DAG-CBOR
 func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, description : Text, testRoundTrip : Bool) {
 
   let actualCborValue = switch (DagCbor.toCbor(value)) {
     case (#ok(cborValue)) cborValue;
-    case (#err(e)) Debug.trap("Encoding failed for " # description # ": " # debug_show (e));
+    case (#err(e)) Runtime.trap("Encoding failed for " # description # ": " # debug_show (e));
   };
 
   if (actualCborValue != expectedCborValue) {
-    Debug.trap(
+    Runtime.trap(
       "Invalid CBOR structure for " # description #
       "\nExpected: " # debug_show (expectedCborValue) #
       "\nActual:   " # debug_show (actualCborValue)
@@ -26,11 +27,11 @@ func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, des
   if (testRoundTrip) {
     let roundTripValue = switch (DagCbor.fromCbor(actualCborValue)) {
       case (#ok(dagValue)) dagValue;
-      case (#err(e)) Debug.trap("Round-trip fromCbor failed for " # description # ": " # debug_show (e));
+      case (#err(e)) Runtime.trap("Round-trip fromCbor failed for " # description # ": " # debug_show (e));
     };
 
     if (roundTripValue != value) {
-      Debug.trap(
+      Runtime.trap(
         "Round-trip failed for " # description #
         "\nOriginal: " # debug_show (value) #
         "\nRound-trip: " # debug_show (roundTripValue)
@@ -268,8 +269,8 @@ test(
     testDagToCborMap(
       #cid(
         #v1({
-          codec = #dag_cbor;
-          hashAlgorithm = #sha2_256;
+          codec = #dagCbor;
+          hashAlgorithm = #sha2256;
           hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
         })
       ),
@@ -356,8 +357,8 @@ test(
         "cid",
         #cid(
           #v1({
-            codec = #dag_cbor;
-            hashAlgorithm = #sha2_256;
+            codec = #dagCbor;
+            hashAlgorithm = #sha2256;
             hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
           })
         ),
@@ -365,24 +366,24 @@ test(
     ]);
 
     // This should encode properly and be decodable as CBOR
-    let buffer = Buffer.Buffer<Nat8>(100);
-    let result = DagCbor.toBytesBuffer(buffer, complexValue);
+    let buffer = List.empty<Nat8>();
+    let result = DagCbor.toBytesBuffer(Buffer.fromList(buffer), complexValue);
 
     switch (result) {
       case (#ok(_)) {
-        let bytes = Buffer.toArray(buffer);
+        let bytes = List.toArray(buffer);
         // Verify it can be decoded as valid CBOR
         switch (Cbor.fromBytes(bytes.vals())) {
           case (#ok(_)) {
             // Success - the complex structure encoded correctly
           };
           case (#err(e)) {
-            Debug.trap("Complex structure failed CBOR decode: " # debug_show (e));
+            Runtime.trap("Complex structure failed CBOR decode: " # debug_show (e));
           };
         };
       };
       case (#err(e)) {
-        Debug.trap("Complex structure encoding failed: " # debug_show (e));
+        Runtime.trap("Complex structure encoding failed: " # debug_show (e));
       };
     };
   },
@@ -390,12 +391,12 @@ test(
 
 // Helper function for testing expected encoding failures
 func testDagEncodingFailure(value : DagCbor.Value, expectedError : DagCbor.DagEncodingError, description : Text) {
-  let buffer = Buffer.Buffer<Nat8>(10);
-  let result = DagCbor.toBytesBuffer(buffer, value);
+  let buffer = List.empty<Nat8>();
+  let result = DagCbor.toBytesBuffer(Buffer.fromList(buffer), value);
 
   switch (result) {
-    case (#ok(_)) {
-      Debug.trap("Expected encoding failure for " # description # " but encoding succeeded");
+    case (#ok) {
+      Runtime.trap("Expected encoding failure for " # description # " but encoding succeeded");
     };
     case (#err(actualError)) {
       // Check if we got the expected type of error
@@ -408,7 +409,7 @@ func testDagEncodingFailure(value : DagCbor.Value, expectedError : DagCbor.DagEn
       };
 
       if (not errorMatches) {
-        Debug.trap(
+        Runtime.trap(
           "Expected error " # debug_show (expectedError) # " for " # description #
           " but got " # debug_show (actualError)
         );
@@ -525,7 +526,7 @@ test(
   "DAG-CBOR Very Long Key",
   func() {
     // Test with a very long key to ensure no buffer issues
-    let longKey = "this_is_a_very_long_key_name_that_should_still_work_correctly_in_dag_cbor_encoding";
+    let longKey = "this_is_a_very_long_key_name_that_should_still_work_correctly_in_dagCbor_encoding";
     testDagToCborMap(
       #map([(longKey, #int(42)), ("short", #int(1))]),
       #majorType5([
@@ -553,8 +554,8 @@ test(
         #map([("nested", #bool(true))]),
         #cid(
           #v1({
-            codec = #dag_cbor;
-            hashAlgorithm = #sha2_256;
+            codec = #dagCbor;
+            hashAlgorithm = #sha2256;
             hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
           })
         ),
@@ -641,7 +642,7 @@ func testFromCborFailure(cborValue : Cbor.Value, expectedErrorType : Text, descr
 
   switch (result) {
     case (#ok(_)) {
-      Debug.trap("Expected fromCbor failure for " # description # " but conversion succeeded");
+      Runtime.trap("Expected fromCbor failure for " # description # " but conversion succeeded");
     };
     case (#err(actualError)) {
       let errorMatches = switch (expectedErrorType, actualError) {
@@ -655,7 +656,7 @@ func testFromCborFailure(cborValue : Cbor.Value, expectedErrorType : Text, descr
       };
 
       if (not errorMatches) {
-        Debug.trap(
+        Runtime.trap(
           "Expected error type " # expectedErrorType # " for " # description #
           " but got " # debug_show (actualError)
         );
@@ -670,7 +671,7 @@ func testDecodeFailure(bytes : [Nat8], expectedErrorType : Text, description : T
 
   switch (result) {
     case (#ok(_)) {
-      Debug.trap("Expected decode failure for " # description # " but decoding succeeded");
+      Runtime.trap("Expected decode failure for " # description # " but decoding succeeded");
     };
     case (#err(actualError)) {
       let errorMatches = switch (expectedErrorType, actualError) {
@@ -684,7 +685,7 @@ func testDecodeFailure(bytes : [Nat8], expectedErrorType : Text, description : T
       };
 
       if (not errorMatches) {
-        Debug.trap(
+        Runtime.trap(
           "Expected error type " # expectedErrorType # " for " # description #
           " but got " # debug_show (actualError)
         );
@@ -827,8 +828,8 @@ test(
       #map([("key1", #int(1)), ("key2", #text("value"))]),
       #cid(
         #v1({
-          codec = #dag_cbor;
-          hashAlgorithm = #sha2_256;
+          codec = #dagCbor;
+          hashAlgorithm = #sha2256;
           hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
         })
       ),
@@ -842,18 +843,18 @@ test(
       // Encode to bytes
       let encodedBytes = switch (DagCbor.toBytes(originalValue)) {
         case (#ok(bytes)) bytes;
-        case (#err(e)) Debug.trap("Encoding failed: " # debug_show (e));
+        case (#err(e)) Runtime.trap("Encoding failed: " # debug_show (e));
       };
 
       // Decode back to DAG-CBOR
       let decodedValue = switch (DagCbor.fromBytes(encodedBytes.vals())) {
         case (#ok(value)) value;
-        case (#err(e)) Debug.trap("Decoding failed: " # debug_show (e));
+        case (#err(e)) Runtime.trap("Decoding failed: " # debug_show (e));
       };
 
       // Check if round-trip preserved the value
       if (decodedValue != originalValue) {
-        Debug.trap(
+        Runtime.trap(
           "Round-trip failed" #
           "\nOriginal: " # debug_show (originalValue) #
           "\nDecoded:  " # debug_show (decodedValue)
@@ -896,8 +897,8 @@ test(
         "cid",
         #cid(
           #v1({
-            codec = #dag_cbor;
-            hashAlgorithm = #sha2_256;
+            codec = #dagCbor;
+            hashAlgorithm = #sha2256;
             hash = "\7a\2f\d4\8e\9c\b1\35\67\f2\a8\1d\4c\e6\90\23\b7\5e\71\89\a3\0f\c4\d2\56\8b\e9\17\42\68\af\93\1c";
           })
         ),
@@ -912,18 +913,18 @@ test(
     // Encode to bytes
     let encodedBytes = switch (DagCbor.toBytes(complexValue)) {
       case (#ok(bytes)) bytes;
-      case (#err(e)) Debug.trap("Complex encoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Complex encoding failed: " # debug_show (e));
     };
 
     // Decode back
     let decodedValue = switch (DagCbor.fromBytes(encodedBytes.vals())) {
       case (#ok(value)) value;
-      case (#err(e)) Debug.trap("Complex decoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Complex decoding failed: " # debug_show (e));
     };
 
     // Verify round-trip
     if (decodedValue != complexValue) {
-      Debug.trap(
+      Runtime.trap(
         "Complex round-trip failed" #
         "\nOriginal: " # debug_show (complexValue) #
         "\nDecoded:  " # debug_show (decodedValue)
@@ -958,32 +959,32 @@ test(
     let largeInt : DagCbor.Value = #int(9223372036854775807); // Max Int64
     let largeIntBytes = switch (DagCbor.toBytes(largeInt)) {
       case (#ok(bytes)) bytes;
-      case (#err(e)) Debug.trap("Large int encoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Large int encoding failed: " # debug_show (e));
     };
 
     let decodedLargeInt = switch (DagCbor.fromBytes(largeIntBytes.vals())) {
       case (#ok(value)) value;
-      case (#err(e)) Debug.trap("Large int decoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Large int decoding failed: " # debug_show (e));
     };
 
     if (decodedLargeInt != largeInt) {
-      Debug.trap("Large int round-trip failed");
+      Runtime.trap("Large int round-trip failed");
     };
 
     // Very large negative integer (within bounds)
     let largeNegInt : DagCbor.Value = #int(-9223372036854775808); // Min Int64
     let largeNegIntBytes = switch (DagCbor.toBytes(largeNegInt)) {
       case (#ok(bytes)) bytes;
-      case (#err(e)) Debug.trap("Large negative int encoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Large negative int encoding failed: " # debug_show (e));
     };
 
     let decodedLargeNegInt = switch (DagCbor.fromBytes(largeNegIntBytes.vals())) {
       case (#ok(value)) value;
-      case (#err(e)) Debug.trap("Large negative int decoding failed: " # debug_show (e));
+      case (#err(e)) Runtime.trap("Large negative int decoding failed: " # debug_show (e));
     };
 
     if (decodedLargeNegInt != largeNegInt) {
-      Debug.trap("Large negative int round-trip failed");
+      Runtime.trap("Large negative int round-trip failed");
     };
   },
 );
