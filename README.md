@@ -38,7 +38,6 @@ DAG-CBOR is a strict subset of CBOR (Concise Binary Object Representation) desig
 
 ```motoko
 import DagCbor "mo:dag-cbor";
-import Debug "mo:core/Debug";
 
 // Create a simple value
 let value : DagCbor.Value = #map([
@@ -64,22 +63,22 @@ let dagValue : DagCbor.Value = switch (DagCbor.fromBytes(bytes.vals())) {
 
 ```motoko
 import DagCbor "mo:dag-cbor";
-import Buffer "mo:core/Buffer";
-import Debug "mo:core/Debug";
+import List "mo:core/List";
+import Buffer "mo:buffer";
 
 let value : DagCbor.Value = #text("Hello, World!");
 
 // Create a buffer for streaming encoding
-let buffer = Buffer.Buffer<Nat8>(100);
+let buffer = List.emtpy<Nat8>();
 
 // Encode to buffer and get bytes written count
-let bytesWritten: Nat = switch (DagCbor.toBytesBuffer(buffer, value)) {
+let bytesWritten: Nat = switch (DagCbor.toBytesBuffer(Buffer.fromList(buffer), value)) {
     case (#err(error)) Runtime.trap("Encoding failed: " # debug_show(error));
     case (#ok(count)) count;
 };
 
 // Buffer now contains the encoded data
-let encodedBytes = Buffer.toArray(buffer);
+let encodedBytes = List.toArray(buffer);
 ```
 
 ### Example 3: To/From Cbor Value
