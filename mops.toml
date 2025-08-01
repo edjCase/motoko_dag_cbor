@@ -2,7 +2,7 @@
 name = "dag-cbor"
 version = "2.0.0"
 description = "A Motoko library for encoding and decoding DAG-CBOR data structures."
-repository = "https://github.com/edjcase/motoko_dagCbor"
+repository = "https://github.com/edjcase/motoko_dag_cbor"
 keywords = ["dag", "cbor", "ipld", "encode", "decode"]
 license = "MIT"
 
