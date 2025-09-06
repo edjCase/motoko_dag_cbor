@@ -1,11 +1,11 @@
 import DagCbor "../src";
-import Cbor "mo:cbor";
-import Nat8 "mo:core/Nat8";
-import Buffer "mo:buffer";
+import Cbor "mo:cbor@4";
+import Nat8 "mo:core@1/Nat8";
+import Buffer "mo:buffer@0";
 import { test } "mo:test";
-import FloatX "mo:xtended-numbers/FloatX";
-import Runtime "mo:core/Runtime";
-import List "mo:core/List";
+import FloatX "mo:xtended-numbers@2/FloatX";
+import Runtime "mo:core@1/Runtime";
+import List "mo:core@1/List";
 
 // Test helper to verify that encoded DAG-CBOR can be decoded as CBOR AND optionally round-trip back to DAG-CBOR
 func testDagToCborMap(value : DagCbor.Value, expectedCborValue : Cbor.Value, description : Text, testRoundTrip : Bool) {

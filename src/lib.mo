@@ -1,20 +1,20 @@
-import Cbor "mo:cbor";
-import Result "mo:core/Result";
-import Int "mo:core/Int";
-import Nat64 "mo:core/Nat64";
-import Array "mo:core/Array";
-import Text "mo:core/Text";
-import Nat "mo:core/Nat";
-import Blob "mo:core/Blob";
-import Order "mo:core/Order";
-import Iter "mo:core/Iter";
-import Float "mo:core/Float";
-import Buffer "mo:buffer";
-import FloatX "mo:xtended-numbers/FloatX";
-import CID "mo:cid";
-import MultiBase "mo:multiformats/MultiBase";
-import Nat8 "mo:core/Nat8";
-import List "mo:core/List";
+import Cbor "mo:cbor@4";
+import Result "mo:core@1/Result";
+import Int "mo:core@1/Int";
+import Nat64 "mo:core@1/Nat64";
+import Array "mo:core@1/Array";
+import Text "mo:core@1/Text";
+import Nat "mo:core@1/Nat";
+import Blob "mo:core@1/Blob";
+import Order "mo:core@1/Order";
+import Iter "mo:core@1/Iter";
+import Float "mo:core@1/Float";
+import Buffer "mo:buffer@0";
+import FloatX "mo:xtended-numbers@2/FloatX";
+import CID "mo:cid@1";
+import MultiBase "mo:multiformats@2/MultiBase";
+import Nat8 "mo:core@1/Nat8";
+import List "mo:core@1/List";
 
 /// DAG-CBOR (Content-Addressed Data Encoding) library for Motoko.
 ///
@@ -40,7 +40,7 @@ import List "mo:core/List";
 /// Example usage:
 /// ```motoko
 /// import DagCbor "mo:dag-cbor";
-/// import Result "mo:core/Result";
+/// import Result "mo:core@1/Result";
 ///
 /// // Encode a value to DAG-CBOR bytes
 /// let value = #map([("name", #text("Alice")), ("age", #int(30))]);
