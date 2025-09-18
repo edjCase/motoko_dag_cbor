@@ -1,20 +1,7 @@
-import Cbor "mo:cbor@4";
-import Result "mo:core@1/Result";
-import Int "mo:core@1/Int";
-import Nat64 "mo:core@1/Nat64";
-import Array "mo:core@1/Array";
-import Text "mo:core@1/Text";
-import Nat "mo:core@1/Nat";
-import Blob "mo:core@1/Blob";
-import Order "mo:core@1/Order";
-import Iter "mo:core@1/Iter";
-import Float "mo:core@1/Float";
-import Buffer "mo:buffer@0";
-import FloatX "mo:xtended-numbers@2/FloatX";
-import CID "mo:cid@1";
-import MultiBase "mo:multiformats@2/MultiBase";
-import Nat8 "mo:core@1/Nat8";
-import List "mo:core@1/List";
+import Types "Types";
+import Encoder "Encoder";
+import ValueExtractor "ValueExtractor";
+import PathParser "PathParser";
 
 /// DAG-CBOR (Content-Addressed Data Encoding) library for Motoko.
 ///
@@ -82,17 +69,7 @@ module {
   ///
   /// Note: Maps must have text keys only and will be sorted lexicographically
   /// during encoding to ensure deterministic output.
-  public type Value = {
-    #int : Int;
-    #bytes : [Nat8];
-    #text : Text;
-    #array : [Value];
-    #map : [(Text, Value)];
-    #cid : CID.CID;
-    #bool : Bool;
-    #null_;
-    #float : Float;
-  };
+  public type Value = Types.Value;
 
   /// Errors that can occur when converting DAG-CBOR values to CBOR format.
   /// These errors indicate violations of DAG-CBOR constraints or invalid data.
@@ -110,11 +87,7 @@ module {
   /// // This would cause #invalidMapKey (non-text key)
   /// let invalidMap = [(123, #text("value"))]; // Should be text key
   /// ```
-  public type DagToCborError = {
-    #invalidValue : Text;
-    #invalidMapKey : Text;
-    #unsortedMapKeys;
-  };
+  public type DagToCborError = Types.DagToCborError;
 
   /// Errors that can occur when converting CBOR format to DAG-CBOR values.
   /// These errors indicate CBOR data that violates DAG-CBOR constraints.
@@ -133,14 +106,7 @@ module {
   /// // CBOR with NaN float would cause #floatConversionError
   /// // CBOR with integer key would cause #invalidMapKey
   /// ```
-  public type CborToDagError = {
-    #invalidTag : Nat64;
-    #invalidMapKey : Text;
-    #invalidCIDFormat : Text;
-    #unsupportedPrimitive : Text;
-    #floatConversionError : Text;
-    #integerOutOfRange : Text;
-  };
+  public type CborToDagError = Types.CborToDagError;
 
   /// Comprehensive error type for DAG-CBOR encoding operations.
   /// This includes both DAG-CBOR specific errors and underlying CBOR encoding errors.
@@ -157,9 +123,7 @@ module {
   ///     case (#err(#cborEncodingError(err))) { /* handle CBOR error */ };
   /// };
   /// ```
-  public type DagEncodingError = DagToCborError or {
-    #cborEncodingError : Cbor.EncodingError;
-  };
+  public type DagEncodingError = Types.DagEncodingError;
 
   /// Comprehensive error type for DAG-CBOR decoding operations.
   /// This includes both DAG-CBOR specific errors and underlying CBOR decoding errors.
@@ -176,9 +140,7 @@ module {
   ///     case (#err(#cborDecodingError(err))) { /* handle CBOR error */ };
   /// };
   /// ```
-  public type DagDecodingError = CborToDagError or {
-    #cborDecodingError : Cbor.DecodingError;
-  };
+  public type DagDecodingError = Types.DagDecodingError;
 
   /// Encodes a DAG-CBOR value to its binary representation.
   /// This function converts a DAG-CBOR value to its canonical binary format
@@ -206,13 +168,7 @@ module {
   ///     case (#err(error)) { /* handle error */ };
   /// };
   /// ```
-  public func toBytes(value : Value) : Result.Result<[Nat8], DagEncodingError> {
-    let buffer = List.empty<Nat8>();
-    switch (toBytesBuffer(Buffer.fromList(buffer), value)) {
-      case (#ok(_)) #ok(List.toArray(buffer));
-      case (#err(e)) #err(e);
-    };
-  };
+  public let toBytes = Encoder.toBytes;
 
   /// Encodes a DAG-CBOR value directly into a provided buffer.
   /// This function is useful for streaming or when you want to manage buffer allocation yourself.
@@ -242,15 +198,7 @@ module {
   ///     case (#err(error)) { /* handle error */ };
   /// };
   /// ```
-  public func toBytesBuffer(buffer : Buffer.Buffer<Nat8>, value : Value) : Result.Result<(), DagEncodingError> {
-    switch (toCbor(value)) {
-      case (#ok(cborValue)) switch (Cbor.toBytesBuffer(buffer, cborValue)) {
-        case (#ok) #ok;
-        case (#err(e)) #err(#cborEncodingError(e));
-      };
-      case (#err(e)) #err(e);
-    };
-  };
+  public let toBytesBuffer = Encoder.toBytesBuffer;
 
   /// Decodes DAG-CBOR binary data into a structured value.
   /// This function takes binary data in DAG-CBOR format and converts it back
@@ -278,19 +226,7 @@ module {
   ///     case (#err(error)) { /* handle error */ };
   /// };
   /// ```
-  public func fromBytes(bytes : Iter.Iter<Nat8>) : Result.Result<Value, DagDecodingError> {
-    // First decode using the CBOR library
-    switch (Cbor.fromBytes(bytes)) {
-      case (#ok(cborValue)) {
-        // Then convert CBOR Value to DAG-CBOR Value
-        switch (fromCbor(cborValue)) {
-          case (#ok(dagValue)) #ok(dagValue);
-          case (#err(e)) #err(e);
-        };
-      };
-      case (#err(cborError)) #err(#cborDecodingError(cborError));
-    };
-  };
+  public let fromBytes = Encoder.fromBytes;
 
   /// Converts a DAG-CBOR value to its intermediate CBOR representation.
   /// This function transforms a DAG-CBOR value into a standard CBOR value
@@ -316,19 +252,7 @@ module {
   /// let cborResult = toCbor(dagValue);
   /// // Returns CBOR map with properly ordered keys
   /// ```
-  public func toCbor(value : Value) : Result.Result<Cbor.Value, DagToCborError> {
-    switch (value) {
-      case (#int(i)) mapInt(i);
-      case (#bytes(b)) mapBytes(b);
-      case (#text(t)) mapText(t);
-      case (#array(a)) mapArray(a);
-      case (#map(m)) mapMap(m);
-      case (#cid(c)) mapCID(c);
-      case (#bool(b)) mapBool(b);
-      case (#null_) mapNull();
-      case (#float(f)) mapFloat(f);
-    };
-  };
+  public let toCbor = Encoder.toCbor;
 
   /// Converts a CBOR value to a DAG-CBOR value with validation.
   /// This function takes a standard CBOR value and converts it to a DAG-CBOR value
@@ -355,215 +279,565 @@ module {
   /// let dagResult = fromCbor(cborValue);
   /// // Returns DAG-CBOR map with validated structure
   /// ```
-  public func fromCbor(cborValue : Cbor.Value) : Result.Result<Value, CborToDagError> {
-    switch (cborValue) {
-      case (#majorType0(n)) #ok(#int(Int.fromNat(Nat64.toNat(n))));
-      case (#majorType1(i)) #ok(#int(i));
-      case (#majorType2(bytes)) #ok(#bytes(bytes));
-      case (#majorType3(text)) #ok(#text(text));
-      case (#majorType4(array)) {
-        // Array - recursively convert elements
-        let dagArray = List.empty<Value>();
-        for (item in array.vals()) {
-          switch (fromCbor(item)) {
-            case (#ok(dagValue)) List.add(dagArray, dagValue);
-            case (#err(e)) return #err(e);
-          };
-        };
-        #ok(#array(List.toArray(dagArray)));
-      };
-      case (#majorType5(map)) {
-        // Map - validate string keys and convert values
-        let dagMap = List.empty<(Text, Value)>();
-        for ((key, value) in map.vals()) {
-          // DAG-CBOR requires map keys to be strings only
-          let textKey = switch (key) {
-            case (#majorType3(text)) text;
-            case (_) return #err(#invalidMapKey("Map keys must be strings in DAG-CBOR"));
-          };
+  public let fromCbor = Encoder.fromCbor;
 
-          // Recursively convert the value
-          switch (fromCbor(value)) {
-            case (#ok(dagValue)) List.add(dagMap, (textKey, dagValue));
-            case (#err(e)) return #err(e);
-          };
-        };
-        #ok(#map(List.toArray(dagMap)));
-      };
-      case (#majorType6({ tag; value })) {
-        // Tagged value - DAG-CBOR only allows tag 42 for CIDs
-        if (tag != 42) {
-          return #err(#invalidTag(tag));
-        };
+  // =============================================================================
+  // VALUE EXTRACTION AND PATH PARSING
+  // =============================================================================
 
-        // Tag 42 must contain a byte string with multibase identity prefix (0x00)
-        switch (value) {
-          case (#majorType2(cidEncodedBytes)) {
-            let (cidBytes, _) = switch (MultiBase.fromEncodedBytes(cidEncodedBytes.vals())) {
-              case (#ok(bytes)) bytes; // Identity multibase is allowed
-              case (#err(e)) return #err(#invalidCIDFormat(e));
-            };
-            switch (CID.fromBytes(cidBytes.vals())) {
-              case (#ok(cidValue)) #ok(#cid(cidValue));
-              case (#err(e)) return #err(#invalidCIDFormat("Invalid CID format: " # e));
-            };
-          };
-          case (_) return #err(#invalidCIDFormat("CID tag 42 must contain a byte string"));
-        };
-      };
-      case (#majorType7(primitive)) {
-        // Primitive values
-        switch (primitive) {
-          case (#bool(b)) #ok(#bool(b));
-          case (#_null) #ok(#null_);
-          case (#float(floatX)) {
-            // Convert FloatX back to Float
-            // DAG-CBOR requires 64-bit floats, so this should be safe
-            let f = FloatX.toFloat(floatX);
-            // Check for IEEE 754 special values that are not allowed in DAG-CBOR
-            if (Float.isNaN(f) or f == (1.0 / 0.0) or f == (-1.0 / 0.0)) {
-              return #err(#floatConversionError("IEEE 754 special values (NaN, Infinity, -Infinity) are not allowed in DAG-CBOR"));
-            };
-            #ok(#float(f));
-          };
-          case (_) return #err(#unsupportedPrimitive("Unsupported primitive type in DAG-CBOR"));
-        };
-      };
-    };
-  };
+  /// Error type for value extraction operations.
+  /// These errors can occur when accessing values at specific paths within DAG-CBOR structures.
+  ///
+  /// Error types:
+  /// * `#pathNotFound`: The specified path does not exist in the value structure
+  /// * `#typeMismatch`: The value at the path is not of the expected type
+  ///
+  /// Example scenarios:
+  /// ```motoko
+  /// // #pathNotFound - accessing non-existent key
+  /// let result = getAsText(value, "missing.key");
+  ///
+  /// // #typeMismatch - expecting text but found integer
+  /// let result = getAsText(value, "user.age"); // age is an integer
+  /// ```
+  public type GetAsError = ValueExtractor.GetAsError;
 
-  func mapInt(value : Int) : Result.Result<Cbor.Value, DagToCborError> {
-    if (value >= 0) {
-      // Positive integers use majorType0
-      let natValue = Int.abs(value);
-      if (natValue > 18446744073709551615) {
-        return #err(#invalidValue("Integer value out of range for DAG-CBOR, must be <= 2^64 - 1"));
-      };
-      #ok(#majorType0(Nat64.fromNat(natValue)));
-    } else {
-      if (value < -18446744073709551616) {
-        return #err(#invalidValue("Integer value out of range for DAG-CBOR, must be >= -2^64"));
-      };
-      #ok(#majorType1(value));
-    };
-  };
+  /// Parses a dot-notation path string into structured path components.
+  /// This function converts string paths like "user.name" or "items[0].title"
+  /// into an array of path parts for traversing nested DAG-CBOR structures.
+  ///
+  /// Supported path syntax:
+  /// * Dot notation for object keys: `"user.profile.name"`
+  /// * Array indexing with brackets: `"items[0]"` or `"data[5].value"`
+  /// * Wildcard matching: `"users.*.name"` (matches all user names)
+  /// * Mixed notation: `"config.servers[1].host"`
+  ///
+  /// Parameters:
+  /// * `path`: The dot-notation path string to parse
+  ///
+  /// Returns:
+  /// * Array of PathPart components representing the parsed path
+  ///
+  /// Example:
+  /// ```motoko
+  /// let parts = parsePath("user.tags[0]");
+  /// // Returns: [#key("user"), #key("tags"), #index(0)]
+  ///
+  /// let wildcardParts = parsePath("users.*.name");
+  /// // Returns: [#key("users"), #wildcard, #key("name")]
+  /// ```
+  public let parsePath = PathParser.parsePath;
 
-  func mapBytes(value : [Nat8]) : Result.Result<Cbor.Value, DagToCborError> {
-    #ok(#majorType2(value));
-  };
+  /// Retrieves a value at the specified path within a DAG-CBOR structure.
+  /// This function navigates through nested maps and arrays using dot notation
+  /// to extract values from complex DAG-CBOR data structures.
+  ///
+  /// Path syntax:
+  /// * Use dots to separate nested keys: `"user.profile.name"`
+  /// * Use brackets for array indices: `"items[0]"` or `"data[5].value"`
+  /// * Use wildcards to match multiple items: `"users.*.email"`
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `?Value`: The value at the specified path, or null if not found
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([
+  ///   ("user", #map([("name", #text("Alice")), ("age", #int(30))]))
+  /// ]);
+  ///
+  /// let name = get(data, "user.name");
+  /// // Returns: ?#text("Alice")
+  ///
+  /// let missing = get(data, "user.email");
+  /// // Returns: null
+  /// ```
+  public let get = ValueExtractor.get;
 
-  func mapText(value : Text) : Result.Result<Cbor.Value, DagToCborError> {
-    #ok(#majorType3(value));
-  };
+  /// Extracts a natural number value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a non-negative integer that can be represented as a Nat.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(Nat)`: Successfully extracted natural number
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a non-negative integer
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("count", #int(42))]);
+  /// let result = getAsNat(data, "count");
+  /// // Returns: #ok(42)
+  ///
+  /// let negative = #map([("value", #int(-5))]);
+  /// let error = getAsNat(negative, "value");
+  /// // Returns: #err(#typeMismatch)
+  /// ```
+  public let getAsNat = ValueExtractor.getAsNat;
 
-  func mapArray(value : [Value]) : Result.Result<Cbor.Value, DagToCborError> {
-    let cborArray = List.empty<Cbor.Value>();
+  /// Extracts a natural number value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a non-negative integer that can be represented as a Nat.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?Nat)`: Successfully extracted optional natural number
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a non-negative integer
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("count", #int(42)), ("optional", #null_)]);
+  ///
+  /// let result = getAsNullableNat(data, "count", false);
+  /// // Returns: #ok(?42)
+  ///
+  /// let nullValue = getAsNullableNat(data, "optional", false);
+  /// // Returns: #ok(null)
+  ///
+  /// let missing = getAsNullableNat(data, "missing", true);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableNat = ValueExtractor.getAsNullableNat;
 
-    for (item in value.vals()) {
-      switch (toCbor(item)) {
-        case (#ok(cborValue)) {
-          List.add(cborArray, cborValue);
-        };
-        case (#err(e)) return #err(e);
-      };
-    };
+  /// Extracts an integer value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is an integer within the valid Int range.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(Int)`: Successfully extracted integer
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not an integer
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("temperature", #int(-5)), ("count", #int(100))]);
+  ///
+  /// let temp = getAsInt(data, "temperature");
+  /// // Returns: #ok(-5)
+  ///
+  /// let count = getAsInt(data, "count");
+  /// // Returns: #ok(100)
+  /// ```
+  public let getAsInt = ValueExtractor.getAsInt;
 
-    #ok(#majorType4(List.toArray(cborArray)));
-  };
+  /// Extracts an integer value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or an integer within the valid Int range.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?Int)`: Successfully extracted optional integer
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or an integer
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("value", #int(-42)), ("nullable", #null_)]);
+  ///
+  /// let result = getAsNullableInt(data, "value", false);
+  /// // Returns: #ok(?(-42))
+  ///
+  /// let nullValue = getAsNullableInt(data, "nullable", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableInt = ValueExtractor.getAsNullableInt;
 
-  func mapMap(value : [(Text, Value)]) : Result.Result<Cbor.Value, DagToCborError> {
-    // Validate and sort map keys according to DAG-CBOR rules
-    let sortedEntries = sortMapEntries(value);
+  /// Extracts a floating-point number value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a floating-point number or integer that can be converted to Float.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(Float)`: Successfully extracted floating-point number
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a number
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("pi", #float(3.14159)), ("count", #int(42))]);
+  ///
+  /// let pi = getAsFloat(data, "pi");
+  /// // Returns: #ok(3.14159)
+  ///
+  /// let converted = getAsFloat(data, "count");
+  /// // Returns: #ok(42.0)
+  /// ```
+  public let getAsFloat = ValueExtractor.getAsFloat;
 
-    // Check for duplicate keys
-    switch (checkDuplicateKeys(sortedEntries)) {
-      case (#err(e)) return #err(e);
-      case (#ok()) {};
-    };
+  /// Extracts a floating-point number value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null, a floating-point number, or integer that can be converted to Float.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?Float)`: Successfully extracted optional floating-point number
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a number
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("value", #float(2.718)), ("nullable", #null_)]);
+  ///
+  /// let result = getAsNullableFloat(data, "value", false);
+  /// // Returns: #ok(?2.718)
+  ///
+  /// let nullValue = getAsNullableFloat(data, "nullable", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableFloat = ValueExtractor.getAsNullableFloat;
 
-    // Convert to CBOR map entries
-    let cborEntries = List.empty<(Cbor.Value, Cbor.Value)>();
+  /// Extracts a boolean value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a boolean (true or false).
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(Bool)`: Successfully extracted boolean
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a boolean
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("active", #bool(true)), ("disabled", #bool(false))]);
+  ///
+  /// let active = getAsBool(data, "active");
+  /// // Returns: #ok(true)
+  ///
+  /// let disabled = getAsBool(data, "disabled");
+  /// // Returns: #ok(false)
+  /// ```
+  public let getAsBool = ValueExtractor.getAsBool;
 
-    for ((key, val) in sortedEntries.vals()) {
-      switch (toCbor(val)) {
-        case (#ok(cborValue)) {
-          let cborKey = #majorType3(key); // Text keys
-          List.add(cborEntries, (cborKey, cborValue));
-        };
-        case (#err(e)) return #err(e);
-      };
-    };
+  /// Extracts a boolean value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a boolean (true or false).
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?Bool)`: Successfully extracted optional boolean
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a boolean
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("enabled", #bool(true)), ("optional", #null_)]);
+  ///
+  /// let result = getAsNullableBool(data, "enabled", false);
+  /// // Returns: #ok(?true)
+  ///
+  /// let nullValue = getAsNullableBool(data, "optional", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableBool = ValueExtractor.getAsNullableBool;
 
-    #ok(#majorType5(List.toArray(cborEntries)));
-  };
+  /// Extracts a text string value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a UTF-8 encoded text string.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(Text)`: Successfully extracted text string
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a text string
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("name", #text("Alice")), ("title", #text("Engineer"))]);
+  ///
+  /// let name = getAsText(data, "name");
+  /// // Returns: #ok("Alice")
+  ///
+  /// let title = getAsText(data, "title");
+  /// // Returns: #ok("Engineer")
+  /// ```
+  public let getAsText = ValueExtractor.getAsText;
 
-  func mapCID(value : CID.CID) : Result.Result<Cbor.Value, DagToCborError> {
-    let cidBuffer = List.empty<Nat8>();
-    List.add<Nat8>(cidBuffer, 0); // Multibase identity prefix (0x00)
-    let _ = CID.toBytesBuffer(Buffer.fromList(cidBuffer), value);
-    #ok(
-      #majorType6({
-        tag = 42; // Only tag 42 is allowed in DAG-CBOR
-        value = #majorType2(List.toArray(cidBuffer));
-      })
-    );
-  };
+  /// Extracts a text string value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a UTF-8 encoded text string.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?Text)`: Successfully extracted optional text string
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a text string
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("name", #text("Bob")), ("nickname", #null_)]);
+  ///
+  /// let result = getAsNullableText(data, "name", false);
+  /// // Returns: #ok(?"Bob")
+  ///
+  /// let nullValue = getAsNullableText(data, "nickname", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableText = ValueExtractor.getAsNullableText;
 
-  func mapBool(value : Bool) : Result.Result<Cbor.Value, DagToCborError> {
-    #ok(#majorType7(#bool(value)));
-  };
+  /// Extracts an array value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is an array of DAG-CBOR values.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok([Value])`: Successfully extracted array of values
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not an array
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("tags", #array([#text("admin"), #text("user")]))]);
+  ///
+  /// let tags = getAsArray(data, "tags");
+  /// // Returns: #ok([#text("admin"), #text("user")])
+  /// ```
+  public let getAsArray = ValueExtractor.getAsArray;
 
-  func mapNull() : Result.Result<Cbor.Value, DagToCborError> {
-    #ok(#majorType7(#_null));
-  };
+  /// Extracts an array value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or an array of DAG-CBOR values.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?[Value])`: Successfully extracted optional array of values
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or an array
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("items", #array([#int(1), #int(2)])), ("empty", #null_)]);
+  ///
+  /// let result = getAsNullableArray(data, "items", false);
+  /// // Returns: #ok(?[#int(1), #int(2)])
+  ///
+  /// let nullValue = getAsNullableArray(data, "empty", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableArray = ValueExtractor.getAsNullableArray;
 
-  func mapFloat(value : Float) : Result.Result<Cbor.Value, DagToCborError> {
-    // DAG-CBOR requires 64-bit floats only
-    #ok(#majorType7(#float(FloatX.fromFloat(value, #f64))));
-  };
+  /// Extracts a map value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a map (key-value pairs) with text keys.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok([(Text, Value)])`: Successfully extracted map as key-value pairs
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a map
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("config", #map([("debug", #bool(true)), ("port", #int(8080))]))]);
+  ///
+  /// let config = getAsMap(data, "config");
+  /// // Returns: #ok([("debug", #bool(true)), ("port", #int(8080))])
+  /// ```
+  public let getAsMap = ValueExtractor.getAsMap;
 
-  // Helper function to sort map entries according to DAG-CBOR rules
-  func sortMapEntries(entries : [(Text, Value)]) : [(Text, Value)] {
-    Array.sort(
-      entries,
-      func((keyA, _) : (Text, Value), (keyB, _) : (Text, Value)) : Order.Order {
-        let bytesA = Text.encodeUtf8(keyA);
-        let bytesB = Text.encodeUtf8(keyB);
+  /// Extracts a map value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a map (key-value pairs) with text keys.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?([(Text, Value)]))`: Successfully extracted optional map as key-value pairs
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a map
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("settings", #map([("theme", #text("dark"))])), ("optional", #null_)]);
+  ///
+  /// let result = getAsNullableMap(data, "settings", false);
+  /// // Returns: #ok(?[("theme", #text("dark"))])
+  ///
+  /// let nullValue = getAsNullableMap(data, "optional", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableMap = ValueExtractor.getAsNullableMap;
 
-        // First compare by length
-        if (bytesA.size() < bytesB.size()) {
-          #less;
-        } else if (bytesA.size() > bytesB.size()) {
-          #greater;
-        } else {
-          compareEqualSizedBlobs(bytesA, bytesB);
-        };
-      },
-    );
-  };
+  /// Extracts a byte array value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a byte array (binary data).
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok([Nat8])`: Successfully extracted byte array
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a byte array
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("data", #bytes([0x01, 0x02, 0x03, 0x04]))]);
+  ///
+  /// let bytes = getAsBytes(data, "data");
+  /// // Returns: #ok([0x01, 0x02, 0x03, 0x04])
+  /// ```
+  public let getAsBytes = ValueExtractor.getAsBytes;
 
-  // Helper function to compare byte arrays lexicographically
-  func compareEqualSizedBlobs(a : Blob, b : Blob) : Order.Order {
-    assert (a.size() == b.size());
-    for (i in Nat.range(0, a.size())) {
-      if (a[i] < b[i]) return #less;
-      if (a[i] > b[i]) return #greater;
-    };
-    #equal;
-  };
+  /// Extracts a byte array value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a byte array (binary data).
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?[Nat8])`: Successfully extracted optional byte array
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a byte array
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("binary", #bytes([0xFF, 0xFE])), ("empty", #null_)]);
+  ///
+  /// let result = getAsNullableBytes(data, "binary", false);
+  /// // Returns: #ok(?[0xFF, 0xFE])
+  ///
+  /// let nullValue = getAsNullableBytes(data, "empty", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableBytes = ValueExtractor.getAsNullableBytes;
 
-  // Helper function to check for duplicate keys
-  func checkDuplicateKeys(entries : [(Text, Value)]) : Result.Result<(), DagToCborError> {
-    if (entries.size() <= 1) return #ok();
+  /// Extracts a CID (Content Identifier) value at the specified path.
+  /// This function retrieves and validates that the value at the given path
+  /// is a valid CID used for content addressing.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  ///
+  /// Returns:
+  /// * `#ok(CID.CID)`: Successfully extracted CID
+  /// * `#err(#pathNotFound)`: Path does not exist
+  /// * `#err(#typeMismatch)`: Value is not a CID
+  ///
+  /// Example:
+  /// ```motoko
+  /// let cid = #v0({ hash = someHash });
+  /// let data = #map([("link", #cid(cid))]);
+  ///
+  /// let result = getAsCid(data, "link");
+  /// // Returns: #ok(cid)
+  /// ```
+  public let getAsCid = ValueExtractor.getAsCid;
 
-    for (i in Nat.range(0, entries.size() - 1)) {
-      let (keyA, _) = entries[i];
-      let (keyB, _) = entries[i + 1];
-      if (Text.equal(keyA, keyB)) {
-        return #err(#invalidMapKey("Duplicate key: " # keyA));
-      };
-    };
+  /// Extracts a CID (Content Identifier) value at the specified path, allowing null values.
+  /// This function retrieves and validates that the value at the given path
+  /// is either null or a valid CID used for content addressing.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, returns `#ok(null)` for missing paths instead of `#err(#pathNotFound)`
+  ///
+  /// Returns:
+  /// * `#ok(?CID.CID)`: Successfully extracted optional CID
+  /// * `#err(#pathNotFound)`: Path does not exist (when allowMissing is false)
+  /// * `#err(#typeMismatch)`: Value is not null or a CID
+  ///
+  /// Example:
+  /// ```motoko
+  /// let cid = #v0({ hash = someHash });
+  /// let data = #map([("reference", #cid(cid)), ("optional", #null_)]);
+  ///
+  /// let result = getAsNullableCid(data, "reference", false);
+  /// // Returns: #ok(?cid)
+  ///
+  /// let nullValue = getAsNullableCid(data, "optional", false);
+  /// // Returns: #ok(null)
+  /// ```
+  public let getAsNullableCid = ValueExtractor.getAsNullableCid;
 
-    #ok();
-  };
+  /// Checks if the value at the specified path is null.
+  /// This function provides a convenient way to test for null values
+  /// without extracting the actual value.
+  ///
+  /// Parameters:
+  /// * `value`: The DAG-CBOR value to search within
+  /// * `path`: Dot-notation path string specifying the location
+  /// * `allowMissing`: If true, treats missing paths as null; if false, treats them as non-null
+  ///
+  /// Returns:
+  /// * `true`: Value at path exists and is null, OR path is missing and allowMissing is true
+  /// * `false`: Value at path exists and is not null, OR path is missing and allowMissing is false
+  ///
+  /// Example:
+  /// ```motoko
+  /// let data = #map([("value", #null_), ("name", #text("Alice"))]);
+  ///
+  /// let isValueNull = isNull(data, "value", false);
+  /// // Returns: true (value exists and is null)
+  ///
+  /// let isNameNull = isNull(data, "name", false);
+  /// // Returns: false (value exists but is not null)
+  ///
+  /// let isMissingNull = isNull(data, "missing", false);
+  /// // Returns: false (path missing, allowMissing is false)
+  ///
+  /// let isMissingTreatedAsNull = isNull(data, "missing", true);
+  /// // Returns: true (path missing, allowMissing is true)
+  /// ```
+  public let isNull = ValueExtractor.isNull;
 };
