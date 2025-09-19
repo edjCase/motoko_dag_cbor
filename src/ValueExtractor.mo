@@ -12,7 +12,7 @@ module {
 
   public type GetAsError = {
     #pathNotFound;
-    #typeMismatch;
+    #typeMismatch : Types.Type;
   };
 
   public func get(
@@ -25,9 +25,9 @@ module {
 
   public func getAsNat(value : Types.Value, path : Text) : Result.Result<Nat, GetAsError> {
     switch (getAsNullableNat(value, path, false)) {
-      case (#ok(?n)) { #ok(n) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?n)) #ok(n);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -38,11 +38,11 @@ module {
       case (#int(intValue)) {
         if (intValue < 0) {
           // Must be a positive integer
-          return #err(#typeMismatch);
+          return #err(#typeMismatch(#int));
         };
         #ok(?Int.abs(intValue));
       };
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
@@ -51,15 +51,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#int(intValue)) #ok(?intValue);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsInt(value : Types.Value, path : Text) : Result.Result<Int, GetAsError> {
     switch (getAsNullableInt(value, path, false)) {
-      case (#ok(?i)) { #ok(i) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?i)) #ok(i);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -69,15 +69,15 @@ module {
       case (#null_) #ok(null);
       case (#int(intValue)) #ok(?Float.fromInt(intValue));
       case (#float(floatValue)) #ok(?floatValue);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsFloat(value : Types.Value, path : Text) : Result.Result<Float, GetAsError> {
     switch (getAsNullableFloat(value, path, false)) {
-      case (#ok(?f)) { #ok(f) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?f)) #ok(f);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -86,15 +86,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#bool(boolValue)) #ok(?boolValue);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsBool(value : Types.Value, path : Text) : Result.Result<Bool, GetAsError> {
     switch (getAsNullableBool(value, path, false)) {
-      case (#ok(?b)) { #ok(b) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?b)) #ok(b);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -103,15 +103,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#text(text)) #ok(?text);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsText(value : Types.Value, path : Text) : Result.Result<Text, GetAsError> {
     switch (getAsNullableText(value, path, false)) {
-      case (#ok(?t)) { #ok(t) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?t)) #ok(t);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -120,15 +120,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#array(items)) #ok(?items);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsArray(value : Types.Value, path : Text) : Result.Result<[Types.Value], GetAsError> {
     switch (getAsNullableArray(value, path, false)) {
-      case (#ok(?a)) { #ok(a) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?a)) #ok(a);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -137,15 +137,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#map(entries)) #ok(?entries);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsMap(value : Types.Value, path : Text) : Result.Result<[(Text, Types.Value)], GetAsError> {
     switch (getAsNullableMap(value, path, false)) {
-      case (#ok(?m)) { #ok(m) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?m)) #ok(m);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -154,15 +154,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#bytes(bytes)) #ok(?bytes);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsBytes(value : Types.Value, path : Text) : Result.Result<[Nat8], GetAsError> {
     switch (getAsNullableBytes(value, path, false)) {
-      case (#ok(?b)) { #ok(b) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?b)) #ok(b);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 
@@ -171,15 +171,15 @@ module {
     switch (v) {
       case (#null_) #ok(null);
       case (#cid(cid)) #ok(?cid);
-      case (_) #err(#typeMismatch);
+      case (_) #err(#typeMismatch(Types.valueToType(v)));
     };
   };
 
   public func getAsCid(value : Types.Value, path : Text) : Result.Result<CID.CID, GetAsError> {
     switch (getAsNullableCid(value, path, false)) {
-      case (#ok(?c)) { #ok(c) };
-      case (#ok(null)) { #err(#typeMismatch) };
-      case (#err(e)) { #err(e) };
+      case (#ok(?c)) #ok(c);
+      case (#ok(null)) #err(#typeMismatch(#null_));
+      case (#err(e)) #err(e);
     };
   };
 

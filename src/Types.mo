@@ -20,6 +20,18 @@ module {
     #float : Float;
   };
 
+  public type Type = {
+    #int;
+    #bytes;
+    #text;
+    #array;
+    #map;
+    #cid;
+    #bool;
+    #null_;
+    #float;
+  };
+
   public type DagToCborError = {
     #invalidValue : Text;
     #invalidMapKey : Text;
@@ -41,5 +53,19 @@ module {
 
   public type DagDecodingError = CborToDagError or {
     #cborDecodingError : Cbor.DecodingError;
+  };
+
+  public func valueToType(value : Value) : Type {
+    switch (value) {
+      case (#int(_)) #int;
+      case (#bytes(_)) #bytes;
+      case (#text(_)) #text;
+      case (#array(_)) #array;
+      case (#map(_)) #map;
+      case (#cid(_)) #cid;
+      case (#bool(_)) #bool;
+      case (#null_) #null_;
+      case (#float(_)) #float;
+    };
   };
 };
